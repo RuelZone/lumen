@@ -10,7 +10,6 @@ import {
   Mic,
   Settings,
   Users,
-  Wifi,
 } from "lucide-react";
 import { PixelBulb } from "@/components/ui/pixel-bulb";
 
@@ -115,43 +114,6 @@ export default function Sidebar() {
           })}
         </div>
 
-        {/* Local AI */}
-        <div className="mt-8">
-          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.12em] text-[#98A2B3] dark:text-[#66756E]">
-            System
-          </p>
-
-          <div className="rounded-2xl border border-[#E1E7E3] bg-[#F7F9F8] p-4 dark:border-[#303B37] dark:bg-[#151C1A]">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#EEF3F0] text-[#4F806C] dark:bg-[#1A2521] dark:text-[#7FA894]">
-                <Bot size={15} />
-              </div>
-
-              <div>
-                <p className="text-xs font-bold text-[#172033] dark:text-[#EEF2EF]">
-                  Local AI
-                </p>
-
-                <p className="text-[10px] text-[#667085] dark:text-[#929C97]">
-                  Running locally
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 flex items-center gap-2 rounded-lg bg-white px-2.5 py-2 dark:bg-[#0F1513]">
-              <Wifi
-                size={12}
-                className="text-[#66756E] dark:text-[#929C97]"
-              />
-
-              <span className="text-[10px] font-medium text-[#667085] dark:text-[#929C97]">
-                Internet not required
-              </span>
-
-              <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#4F806C] dark:bg-[#7FA894]" />
-            </div>
-          </div>
-        </div>
       </nav>
 
       <div className="border-t border-[#EDEFEF] p-4 dark:border-[#29322F]">

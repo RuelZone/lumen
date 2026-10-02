@@ -6,7 +6,6 @@ import {
   ChevronDown,
   Moon,
   Sun,
-  WifiOff,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 
@@ -87,22 +86,6 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-3">
-        {/* Local status */}
-        <div className="hidden items-center gap-2 rounded-full border border-[#D9E3DE] bg-[#F3F6F4] px-3 py-1.5 sm:flex dark:border-[#303B37] dark:bg-[#151C1A]">
-          <span className="h-1.5 w-1.5 rounded-full bg-[#4F806C] dark:bg-[#7FA894]" />
-
-          <span className="text-[10px] font-semibold tracking-wide text-[#66756E] dark:text-[#929C97]">
-            LOCAL AI
-          </span>
-        </div>
-
-        <div className="hidden items-center gap-1.5 text-xs text-[#667085] lg:flex dark:text-[#929C97]">
-          <WifiOff size={13} />
-          Offline ready
-        </div>
-
-        <div className="hidden h-7 w-px bg-[#E3E7E5] lg:block dark:bg-[#29322F]" />
-
         {/* Theme */}
         <button
           onClick={toggleDarkMode}
