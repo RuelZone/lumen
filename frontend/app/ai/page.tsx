@@ -30,10 +30,92 @@ type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  patientName?: string;
   sources?: string[];
   timestamp: string;
   status?: "sent" | "loading" | "error";
 };
+
+function normalizePatientText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .replace(/['’]s\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function phraseIsPresent(query: string, phrase: string): boolean {
+  return ` ${query} `.includes(` ${phrase} `);
+}
+
+function findUnmatchedPatientName(question: string): string | null {
+  const patterns = [
+    /\b([A-Za-z][A-Za-z'-]{2,})['’]s\b/gi,
+    /\b(?:for|about|on|regarding|patient(?:\s+named)?)\s+(?:the\s+)?(?:(?:dr|doctor|mr|mrs|ms|miss)\.?\s+)?([A-Za-z][A-Za-z'-]{2,})/gi,
+  ];
+  const nonNames = new Set([
+    "the", "a", "an", "my", "our", "her", "his", "their", "this", "that",
+    "these", "those", "latest", "recent", "last", "previous", "older", "new",
+    "patient", "patients", "record", "records", "report", "reports", "result",
+    "results", "lab", "labs", "note", "notes", "chart", "visit", "visits",
+    "medication", "medications", "treatment", "diagnosis", "today", "yesterday",
+    "week", "month", "year", "someone", "anyone", "him", "them", "me", "you",
+    "creatinine", "hemoglobin", "haemoglobin", "tsh", "glucose", "sodium", "potassium",
+    "cholesterol", "blood", "pressure", "fatigue", "pain", "cough", "fever", "thyroid",
+    "diabetes", "hypertension", "anemia", "anaemia", "insulin", "levothyroxine",
+  ]);
+
+  for (const pattern of patterns) {
+    for (const match of question.matchAll(pattern)) {
+      const candidate = match[1].replace(/[’']s$/i, "");
+      if (!nonNames.has(candidate.toLocaleLowerCase())) return candidate;
+    }
+  }
+  return null;
+}
+
+function resolvePatientForQuestion(
+  question: string,
+  patients: Patient[],
+  currentPatientId: string,
+): { patient?: Patient; error?: string } {
+  const normalizedQuestion = normalizePatientText(question);
+  const fullNameMatches = patients.filter((patient) =>
+    phraseIsPresent(normalizedQuestion, normalizePatientText(patient.name)),
+  );
+
+  if (fullNameMatches.length === 1) return { patient: fullNameMatches[0] };
+  if (fullNameMatches.length > 1) {
+    return {
+      error: `More than one patient has the name “${fullNameMatches[0].name}”. Please choose the correct patient from Active patient context.`,
+    };
+  }
+
+  const nameTokenMatches = patients.filter((patient) =>
+    normalizePatientText(patient.name)
+      .split(" ")
+      .filter((token) => token.length > 2)
+      .some((token) => phraseIsPresent(normalizedQuestion, token)),
+  );
+
+  if (nameTokenMatches.length === 1) return { patient: nameTokenMatches[0] };
+  if (nameTokenMatches.length > 1) {
+    return {
+      error: `I found multiple patients matching that name: ${nameTokenMatches.map((patient) => `${patient.name} (${patient.id})`).join(", ")}. Please clarify the full name or choose a patient from Active patient context.`,
+    };
+  }
+
+  const unmatchedName = findUnmatchedPatientName(question);
+  if (unmatchedName) {
+    return {
+      error: `I couldn't find “${unmatchedName}” in your local patient list. Check the name or choose a patient from Active patient context.`,
+    };
+  }
+
+  return { patient: patients.find((patient) => patient.id === currentPatientId) ?? patients[0] };
+}
 
 export default function AskLumenPage() {
   const [hasHydrated, setHasHydrated] = useState(false);
@@ -148,6 +230,18 @@ export default function AskLumenPage() {
 
     if (!finalQuestion || isSearching || !selected.id) return;
 
+    const routing = resolvePatientForQuestion(finalQuestion, patients, selectedPatient);
+    if (!routing.patient) {
+      setBackendError(routing.error ?? "Please choose a patient before asking.");
+      return;
+    }
+    const routedPatient = routing.patient;
+
+    if (routedPatient.id !== selected.id) {
+      setSelectedPatient(routedPatient.id);
+      setMessages([]);
+    }
+
     // Immediately clear the input dialogue to prevent stale text or backspace sync bugs
     setInputText("");
 
@@ -161,6 +255,7 @@ export default function AskLumenPage() {
       id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       role: "user",
       content: finalQuestion,
+      patientName: routedPatient.name,
       timestamp: timeString,
       status: "sent",
     };
@@ -174,7 +269,7 @@ export default function AskLumenPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          patientId: selected.id,
+          patientId: routedPatient.id,
           question: finalQuestion,
         }),
       });
@@ -189,6 +284,7 @@ export default function AskLumenPage() {
         role: "assistant",
         content:
           data.answer ?? "I don't have that information in documented records.",
+        patientName: routedPatient.name,
         sources: Array.isArray(data.sources) ? data.sources : [],
         timestamp: new Date().toLocaleTimeString([], {
           hour: "2-digit",
@@ -396,6 +492,9 @@ export default function AskLumenPage() {
                           <span className="text-[10px] font-medium text-lumen-muted">
                             Dr. Arun
                           </span>
+                          <span className="text-[9px] text-lumen-green">
+                            For {msg.patientName ?? selected.name}
+                          </span>
                           <span className="text-[9px] text-lumen-muted/70">
                             {msg.timestamp}
                           </span>
@@ -422,7 +521,7 @@ export default function AskLumenPage() {
                                     Lumen
                                   </p>
                                   <span className="rounded-full border border-lumen-border bg-card px-2 py-0.5 text-[8px] uppercase tracking-wide text-lumen-muted">
-                                    Record Grounded
+                                    {`Records: ${msg.patientName ?? selected.name}`}
                                   </span>
                                 </div>
                                 <span className="text-[9px] text-lumen-muted/70">
