@@ -1,0 +1,7 @@
+chromadb
+llama-cpp-python
+sentence-transformers
+faster-whisper
+sounddevice
+numpy
+scipy
