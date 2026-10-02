@@ -49,7 +49,12 @@ export default function FloatingLumen() {
           typeof parsed.x === "number" &&
           typeof parsed.y === "number"
         ) {
-          setPosition(clampPosition(parsed));
+          setPosition(
+            clampPosition({
+              x: parsed.x,
+              y: parsed.y,
+            }),
+          );
         }
       }
     } catch {
