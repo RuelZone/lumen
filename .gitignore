@@ -1,0 +1,10 @@
+# Local Python environment and downloaded model weights
+.venv/
+models/
+__pycache__/
+*.py[cod]
+
+# Local patient data and derived vector index (do not commit patient records)
+hospital.db
+chroma_db/
+patients.json
