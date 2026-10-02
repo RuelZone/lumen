@@ -15,6 +15,7 @@ import {
 
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
+import { PixelBulb } from "@/components/ui/pixel-bulb";
 
 const patients = [
   {
@@ -84,13 +85,10 @@ export default function DashboardPage() {
             <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-center">
               <div>
                 <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#E1E7E3] bg-[#F7F9F8] px-3 py-1.5 dark:border-[#303B37] dark:bg-[#151C1A]">
-                  <Sparkles
-                    size={12}
-                    className="text-[#66756E] dark:text-[#929C97]"
-                  />
+                  <PixelBulb size="xs" glow />
 
                   <span className="text-[10px] font-semibold tracking-wide text-[#66756E] dark:text-[#929C97]">
-                    YOUR PRIVATE AI MEMORY
+                    LUMEN PRIVATE AI MEMORY
                   </span>
                 </div>
 
@@ -106,9 +104,9 @@ export default function DashboardPage() {
 
               <Link
                 href="/ai"
-                className="group inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#172033] px-5 py-3 text-sm font-semibold text-white hover:bg-[#253149] dark:bg-[#EEF2EF] dark:text-[#0B1110] dark:hover:bg-white"
+                className="group inline-flex shrink-0 items-center justify-center gap-2.5 rounded-xl bg-[#172033] px-5 py-3 text-sm font-semibold text-white hover:bg-[#253149] dark:bg-[#EEF2EF] dark:text-[#0B1110] dark:hover:bg-white shadow-xs"
               >
-                <Bot size={17} />
+                <PixelBulb size="sm" glow />
                 Ask Lumen
                 <ArrowRight
                   size={16}
@@ -237,14 +235,16 @@ export default function DashboardPage() {
             {/* Memory */}
             <div className="rounded-2xl border border-[#E1E7E3] bg-white p-6 dark:border-[#29322F] dark:bg-[#121817]">
               <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#F0F3F1] text-[#66756E] dark:bg-[#1A2521] dark:text-[#929C97]">
-                  <Sparkles size={18} />
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20 dark:bg-amber-500/15">
+                  <PixelBulb size="sm" glow />
                 </div>
 
                 <div>
-                  <h2 className="font-bold text-[#172033] dark:text-[#EEF2EF]">
-                    Lumen Memory
-                  </h2>
+                  <div className="flex items-center gap-1.5">
+                    <h2 className="font-bold text-[#172033] dark:text-[#EEF2EF]">
+                      Lumen Memory
+                    </h2>
+                  </div>
 
                   <p className="mt-1 text-xs text-[#667085] dark:text-[#929C97]">
                     Your records, always searchable.
