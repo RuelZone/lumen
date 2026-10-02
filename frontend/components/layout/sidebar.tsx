@@ -12,6 +12,7 @@ import {
   Users,
   Wifi,
 } from "lucide-react";
+import { PixelBulb } from "@/components/ui/pixel-bulb";
 
 const navigation = [
   {
@@ -52,10 +53,8 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="flex h-[73px] items-center border-b border-[#EDEFEF] px-6 dark:border-[#29322F]">
         <Link href="/dashboard" className="flex items-center gap-3">
-          <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-[#172033] dark:bg-[#EEF2EF]">
-            <div className="h-2.5 w-2.5 rounded-full bg-[#9BB5A7] dark:bg-[#4F806C]" />
-
-            <span className="absolute h-5 w-5 rounded-full border border-[#65776E]/40 dark:border-[#4F806C]/30" />
+          <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-[#172033] shadow-xs dark:bg-[#EEF2EF]">
+            <PixelBulb size="sm" glow />
           </div>
 
           <div>
@@ -94,10 +93,14 @@ export default function Sidebar() {
                   <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-[#4F806C] dark:bg-[#7FA894]" />
                 )}
 
-                <Icon
-                  size={17}
-                  strokeWidth={active ? 2 : 1.8}
-                />
+                {item.name === "Ask Lumen" ? (
+                  <PixelBulb size="xs" glow />
+                ) : (
+                  <Icon
+                    size={17}
+                    strokeWidth={active ? 2 : 1.8}
+                  />
+                )}
 
                 <span>{item.name}</span>
 
