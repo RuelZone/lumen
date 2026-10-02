@@ -1,59 +1,44 @@
 "use client";
 
-import { Search } from "lucide-react";
 import PatientCard from "./patientcard";
 
-const patients = [
-  {
-    id: "P001",
-    name: "Rajesh Kumar",
-    age: 45,
-    lastVisit: "28 Sep 2026",
-  },
-  {
-    id: "P002",
-    name: "Anjali Nair",
-    age: 32,
-    lastVisit: "27 Sep 2026",
-  },
-  {
-    id: "P003",
-    name: "Arjun Menon",
-    age: 51,
-    lastVisit: "26 Sep 2026",
-  },
-];
+type Patient = {
+  id: string;
+  name: string;
+  age: number;
+  lastUpdated: string;
+  records: number;
+};
 
-export default function PatientList() {
+type PatientListProps = {
+  patients: Patient[];
+};
+
+export default function PatientList({
+  patients,
+}: PatientListProps) {
+  if (patients.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-lumen-border bg-card p-10 text-center">
+        <p className="text-sm font-medium text-foreground">
+          No patients found
+        </p>
+
+        <p className="mt-1 text-xs text-lumen-muted">
+          Try changing your search or filter.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50">
-
-      {/* Search */}
-      <div className="border-b border-slate-800 p-4">
-        <div className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
-          <Search
-            size={18}
-            className="text-slate-500"
-          />
-
-          <input
-            type="text"
-            placeholder="Search patients..."
-            className="w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-600"
-          />
-        </div>
-      </div>
-
-      {/* Patient list */}
-      <div>
-        {patients.map((patient) => (
-          <PatientCard
-            key={patient.id}
-            {...patient}
-          />
-        ))}
-      </div>
-
+    <div className="grid gap-4 md:grid-cols-2">
+      {patients.map((patient) => (
+        <PatientCard
+          key={patient.id}
+          patient={patient}
+        />
+      ))}
     </div>
   );
 }
