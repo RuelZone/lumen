@@ -27,7 +27,19 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try {
+              if (localStorage.getItem("lumen-theme") === "dark") {
+                document.documentElement.classList.add("dark");
+              }
+            } catch {}`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col bg-[#F8FAF9] text-[#172033] dark:bg-[#0B1110] dark:text-[#EEF2EF]">
         {children}
         <FloatingLumen />

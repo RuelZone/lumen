@@ -7,7 +7,6 @@ import {
   FileText,
   Mic,
   Users,
-  Wifi,
 } from "lucide-react";
 
 import Sidebar from "@/components/layout/sidebar";
@@ -155,7 +154,7 @@ export default function DashboardPage() {
           </section>
 
           {/* Main */}
-          <section className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_360px]">
+          <section className="mt-6 grid grid-cols-1 gap-6">
             {/* Patients */}
             <div className="rounded-2xl border border-[#E3E7E5] bg-white dark:border-[#29322F] dark:bg-[#121817]">
               <div className="flex items-center justify-between border-b border-[#EEF0F0] px-6 py-5 dark:border-[#29322F]">
@@ -219,64 +218,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Memory */}
-            <div className="rounded-2xl border border-[#E1E7E3] bg-white p-6 dark:border-[#29322F] dark:bg-[#121817]">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20 dark:bg-amber-500/15">
-                  <PixelBulb size="sm" glow />
-                </div>
-
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <h2 className="font-bold text-[#172033] dark:text-[#EEF2EF]">
-                      Lumen Memory
-                    </h2>
-                  </div>
-
-                  <p className="mt-1 text-xs text-[#667085] dark:text-[#929C97]">
-                    Your records, always searchable.
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-6 grid grid-cols-2 gap-2">
-                {[
-                  { value: 186, label: "Records" },
-                  { value: 24, label: "Patients" },
-                  { value: 12, label: "Lab results" },
-                  { value: 6, label: "Voice notes" },
-                ].map(({ value, label }) => (
-                  <div
-                    key={label}
-                    className="rounded-xl bg-[#F7F9F8] p-3 dark:bg-[#171F1D]"
-                  >
-                    <p className="text-lg font-bold text-[#172033] dark:text-[#EEF2EF]">
-                      <CountUp value={value} />
-                    </p>
-
-                    <p className="mt-0.5 text-[10px] text-[#667085] dark:text-[#929C97]">
-                      {label}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 rounded-xl border border-[#E3E7E5] bg-[#FAFBFA] p-4 dark:border-[#303B37] dark:bg-[#151C1A]">
-                <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#4F806C] dark:bg-[#7FA894]" />
-
-                  <span className="text-xs font-semibold text-[#66756E] dark:text-[#929C97]">
-                    Local AI ready
-                  </span>
-                </div>
-
-                <div className="mt-3 flex items-center gap-2 text-[11px] text-[#667085] dark:text-[#929C97]">
-                  <Wifi size={12} />
-                  No internet connection required
-                </div>
-              </div>
-
-            </div>
           </section>
 
           {/* Recent records */}

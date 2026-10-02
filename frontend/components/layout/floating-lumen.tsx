@@ -1,8 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type {
+  FormEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { Send, X } from "lucide-react";
 import { PixelBulb } from "@/components/ui/pixel-bulb";
 
 type Position = { x: number; y: number };
@@ -23,9 +28,13 @@ export default function FloatingLumen() {
   const pathname = usePathname();
   const router = useRouter();
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const dragRef = useRef<Drag | null>(null);
   const suppressClickRef = useRef(false);
   const [position, setPosition] = useState<Position | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [question, setQuestion] = useState("");
 
   useEffect(() => {
     try {
@@ -54,6 +63,14 @@ export default function FloatingLumen() {
     window.addEventListener("resize", keepOnScreen);
     return () => window.removeEventListener("resize", keepOnScreen);
   }, [position]);
+
+  useEffect(() => {
+    if (isOpen) inputRef.current?.focus();
+  }, [isOpen]);
+
+  useEffect(() => {
+    setIsOpen(false);
+  }, [pathname]);
 
   if (pathname === "/login") return null;
 
@@ -87,7 +104,13 @@ export default function FloatingLumen() {
 
     const deltaX = event.clientX - drag.startX;
     const deltaY = event.clientY - drag.startY;
-    if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) drag.moved = true;
+    if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) {
+      if (!drag.moved) {
+        drag.moved = true;
+        setIsDragging(true);
+        setIsOpen(false);
+      }
+    }
     if (drag.moved) setPosition(clampPosition({ x: drag.x + deltaX, y: drag.y + deltaY }));
   }
 
@@ -102,6 +125,7 @@ export default function FloatingLumen() {
       });
     }
     dragRef.current = null;
+    setIsDragging(false);
   }
 
   function handleKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
@@ -116,6 +140,24 @@ export default function FloatingLumen() {
     });
   }
 
+  function handleQuestionSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = question.trim();
+    if (!query) return;
+
+    setIsOpen(false);
+    window.dispatchEvent(
+      new CustomEvent("lumen-prefill-question", {
+        detail: { question: query, autoSubmit: true },
+      }),
+    );
+    router.push(`/ai?q=${encodeURIComponent(query)}&send=1`);
+  }
+
+  const dialogOpensBelow = position !== null && position.y < 300;
+  const dialogAlignsLeft =
+    position !== null && position.x + 320 <= window.innerWidth - EDGE_GAP;
+
   return (
     <div
       className="group fixed z-50"
@@ -125,8 +167,10 @@ export default function FloatingLumen() {
         ref={buttonRef}
         type="button"
         aria-label="Ask Lumen"
-        aria-description="Drag to move this icon. Click to open Ask Lumen. Use arrow keys to reposition."
+        aria-description="Drag to move this icon. Click to type a question for Ask Lumen. Use arrow keys to reposition."
         title="Drag to move · Click to Ask Lumen"
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -137,7 +181,7 @@ export default function FloatingLumen() {
             suppressClickRef.current = false;
             return;
           }
-          router.push("/ai");
+          setIsOpen((open) => !open);
         }}
         className="relative flex h-14 w-14 touch-none cursor-grab select-none items-center justify-center rounded-full border border-white/15 bg-[#172033] shadow-[0_8px_28px_rgba(23,32,51,0.28)] transition duration-200 hover:scale-105 hover:shadow-[0_12px_34px_rgba(23,32,51,0.36)] active:cursor-grabbing focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#4F806C]/35 dark:border-[#7FA894]/30 dark:bg-[#1A2521]"
       >
@@ -152,9 +196,59 @@ export default function FloatingLumen() {
         />
       </button>
 
-      <span className="pointer-events-none absolute right-full mr-3 top-1/2 -translate-y-1/2 translate-x-1 rounded-lg border border-lumen-border bg-card px-3 py-2 text-xs font-medium text-foreground opacity-0 shadow-lg transition duration-150 group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100">
-        Drag to move · Ask Lumen
-      </span>
+      {(isOpen || isDragging) && (
+        <section
+          role="dialog"
+          aria-label="Ask Lumen a question"
+          aria-hidden={isDragging}
+          className={`absolute ${dialogOpensBelow ? "top-full mt-3" : "bottom-full mb-3"} ${dialogAlignsLeft ? "left-0" : "right-0"} w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-lumen-border bg-card shadow-[0_16px_48px_rgba(15,23,42,0.2)] transition-opacity duration-200 ${isDragging ? "pointer-events-none opacity-0" : "opacity-100"}`}
+        >
+          <div className="flex items-center justify-between border-b border-lumen-border px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Ask Lumen</p>
+              <p className="mt-0.5 text-[11px] text-lumen-muted">
+                Ask about a patient&apos;s record
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsOpen(false)}
+              aria-label="Close question box"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-lumen-muted transition hover:bg-card-hover hover:text-foreground"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <form onSubmit={handleQuestionSubmit} className="flex items-center gap-2 p-3">
+            <input
+              ref={inputRef}
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setIsOpen(false);
+              }}
+              placeholder="Type your question..."
+              aria-label="Question for Ask Lumen"
+              className="min-w-0 flex-1 rounded-xl border border-lumen-border bg-input px-3 py-2.5 text-xs text-foreground outline-none placeholder:text-lumen-muted focus:border-lumen-green"
+            />
+            <button
+              type="submit"
+              disabled={!question.trim()}
+              aria-label="Continue to Ask Lumen"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-lumen-navy text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 dark:text-[#0B1110]"
+            >
+              <Send size={15} />
+            </button>
+          </form>
+        </section>
+      )}
+
+      {!isOpen && !isDragging && (
+        <span className="pointer-events-none absolute right-full mr-3 top-1/2 -translate-y-1/2 translate-x-1 rounded-lg border border-lumen-border bg-card px-3 py-2 text-xs font-medium text-foreground opacity-0 shadow-lg transition duration-150 group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100">
+          Drag to move · Ask Lumen
+        </span>
+      )}
     </div>
   );
 }

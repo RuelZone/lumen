@@ -36,6 +36,7 @@ type ChatMessage = {
 };
 
 export default function AskLumenPage() {
+  const [hasHydrated, setHasHydrated] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState("");
   const [patients, setPatients] = useState<Patient[]>([]);
   const [patientsLoading, setPatientsLoading] = useState(true);
@@ -46,18 +47,29 @@ export default function AskLumenPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [pendingAutoSubmit, setPendingAutoSubmit] = useState<{
+    question: string;
+    id: number;
+  } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const autoSubmitSequenceRef = useRef(0);
+  const handledAutoSubmitRef = useRef<number | null>(null);
 
   const selected =
     patients.find((patient) => patient.id === selectedPatient) ??
     patients[0] ?? { id: "", name: "No patient records", age: 0 };
 
   useEffect(() => {
+    setHasHydrated(true);
+  }, []);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const requestedPatient = params.get("patient");
     const query = params.get("q");
+    const shouldAutoSubmit = params.get("send") === "1";
 
     let cancelled = false;
     fetch("/api/patients", { cache: "no-store" })
@@ -78,6 +90,12 @@ export default function AskLumenPage() {
 
         if (query) {
           setInputText(query);
+          if (shouldAutoSubmit) {
+            setPendingAutoSubmit({
+              question: query,
+              id: ++autoSubmitSequenceRef.current,
+            });
+          }
         }
       })
       .catch((reason: unknown) => {
@@ -96,6 +114,28 @@ export default function AskLumenPage() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    const handlePrefillQuestion = (event: Event) => {
+      const detail = (event as CustomEvent<
+        string | { question: string; autoSubmit?: boolean }
+      >).detail;
+      const question = typeof detail === "string" ? detail : detail?.question;
+      if (!question) return;
+      setInputText(question);
+      inputRef.current?.focus();
+      if (typeof detail !== "string" && detail.autoSubmit) {
+        setPendingAutoSubmit({
+          question,
+          id: ++autoSubmitSequenceRef.current,
+        });
+      }
+    };
+
+    window.addEventListener("lumen-prefill-question", handlePrefillQuestion);
+    return () =>
+      window.removeEventListener("lumen-prefill-question", handlePrefillQuestion);
   }, []);
 
   // Auto-scroll when messages change or while searching
@@ -183,6 +223,26 @@ export default function AskLumenPage() {
     }
   };
 
+  useEffect(() => {
+    if (
+      !pendingAutoSubmit ||
+      patientsLoading ||
+      isSearching ||
+      !selected.id ||
+      handledAutoSubmitRef.current === pendingAutoSubmit.id
+    ) {
+      return;
+    }
+
+    handledAutoSubmitRef.current = pendingAutoSubmit.id;
+    setPendingAutoSubmit(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("q");
+    url.searchParams.delete("send");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    void handleSendMessage(pendingAutoSubmit.question);
+  }, [handleSendMessage, isSearching, patientsLoading, pendingAutoSubmit, selected.id]);
+
   const clearChat = () => {
     setMessages([]);
     setInputText("");
@@ -258,7 +318,7 @@ export default function AskLumenPage() {
                     setInputText("");
                     setBackendError("");
                   }}
-                  disabled={patientsLoading || patients.length === 0}
+                  disabled={!hasHydrated || patientsLoading || patients.length === 0}
                   className="w-full appearance-none rounded-xl border border-lumen-border bg-card py-3.5 pl-14 pr-10 text-sm font-medium text-foreground outline-none transition focus:border-lumen-green"
                 >
                   {patientsLoading ? (
@@ -478,7 +538,7 @@ export default function AskLumenPage() {
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
                     placeholder={`Ask about ${selected.name}'s records (e.g. lab results, consultations)...`}
-                    disabled={isSearching || !selected.id}
+                    disabled={!hasHydrated || isSearching || !selected.id}
                     className="min-w-0 flex-1 bg-transparent px-3 py-2 text-xs text-foreground outline-none placeholder:text-lumen-muted disabled:opacity-60"
                   />
 
