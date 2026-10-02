@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowUp,
@@ -36,6 +36,14 @@ type ChatMessage = {
   status?: "sent" | "loading" | "error";
 };
 
+type PatientIndex = {
+  byFullName: Map<string, Patient[]>;
+  byNamePart: Map<string, Patient[]>;
+  byId: Map<string, Patient>;
+  firstPatient?: Patient;
+  maxNameParts: number;
+};
+
 function normalizePatientText(value: string): string {
   return value
     .normalize("NFD")
@@ -46,8 +54,35 @@ function normalizePatientText(value: string): string {
     .trim();
 }
 
-function phraseIsPresent(query: string, phrase: string): boolean {
-  return ` ${query} `.includes(` ${phrase} `);
+function addPatientToIndex(index: Map<string, Patient[]>, key: string, patient: Patient) {
+  if (!key) return;
+  const matches = index.get(key);
+  if (matches) matches.push(patient);
+  else index.set(key, [patient]);
+}
+
+function buildPatientIndex(patients: Patient[]): PatientIndex {
+  const index: PatientIndex = {
+    byFullName: new Map(),
+    byNamePart: new Map(),
+    byId: new Map(),
+    firstPatient: patients[0],
+    maxNameParts: 1,
+  };
+
+  for (const patient of patients) {
+    const normalizedName = normalizePatientText(patient.name);
+    const nameParts = normalizedName.split(" ").filter(Boolean);
+    index.byId.set(patient.id, patient);
+    index.maxNameParts = Math.max(index.maxNameParts, nameParts.length);
+    addPatientToIndex(index.byFullName, normalizedName, patient);
+
+    for (const part of new Set(nameParts.filter((token) => token.length > 2))) {
+      addPatientToIndex(index.byNamePart, part, patient);
+    }
+  }
+
+  return index;
 }
 
 function findUnmatchedPatientName(question: string): string | null {
@@ -78,34 +113,47 @@ function findUnmatchedPatientName(question: string): string | null {
 
 function resolvePatientForQuestion(
   question: string,
-  patients: Patient[],
+  index: PatientIndex,
   currentPatientId: string,
 ): { patient?: Patient; error?: string } {
-  const normalizedQuestion = normalizePatientText(question);
-  const fullNameMatches = patients.filter((patient) =>
-    phraseIsPresent(normalizedQuestion, normalizePatientText(patient.name)),
-  );
+  const questionParts = normalizePatientText(question).split(" ").filter(Boolean);
+  const fullNameMatches = new Map<string, Patient>();
 
-  if (fullNameMatches.length === 1) return { patient: fullNameMatches[0] };
-  if (fullNameMatches.length > 1) {
-    return {
-      error: `More than one patient has the name “${fullNameMatches[0].name}”. Please choose the correct patient from Active patient context.`,
-    };
+  for (let start = 0; start < questionParts.length; start += 1) {
+    for (
+      let count = 1;
+      count <= index.maxNameParts && start + count <= questionParts.length;
+      count += 1
+    ) {
+      const phrase = questionParts.slice(start, start + count).join(" ");
+      for (const patient of index.byFullName.get(phrase) ?? []) {
+        fullNameMatches.set(patient.id, patient);
+        if (fullNameMatches.size > 1) {
+          const matches = [...fullNameMatches.values()];
+          return {
+            error: `I found multiple patients matching the name: ${matches.slice(0, 5).map((item) => `${item.name} (${item.id})`).join(", ")}. Please clarify which patient you mean.`,
+          };
+        }
+      }
+    }
   }
 
-  const nameTokenMatches = patients.filter((patient) =>
-    normalizePatientText(patient.name)
-      .split(" ")
-      .filter((token) => token.length > 2)
-      .some((token) => phraseIsPresent(normalizedQuestion, token)),
-  );
+  if (fullNameMatches.size === 1) return { patient: fullNameMatches.values().next().value };
 
-  if (nameTokenMatches.length === 1) return { patient: nameTokenMatches[0] };
-  if (nameTokenMatches.length > 1) {
-    return {
-      error: `I found multiple patients matching that name: ${nameTokenMatches.map((patient) => `${patient.name} (${patient.id})`).join(", ")}. Please clarify the full name or choose a patient from Active patient context.`,
-    };
+  const nameTokenMatches = new Map<string, Patient>();
+  for (const part of new Set(questionParts)) {
+    for (const patient of index.byNamePart.get(part) ?? []) {
+      nameTokenMatches.set(patient.id, patient);
+      if (nameTokenMatches.size > 1) {
+        const matches = [...nameTokenMatches.values()];
+        return {
+          error: `I found multiple patients matching that name: ${matches.slice(0, 5).map((item) => `${item.name} (${item.id})`).join(", ")}. Please clarify the full name or choose a patient from Active patient context.`,
+        };
+      }
+    }
   }
+
+  if (nameTokenMatches.size === 1) return { patient: nameTokenMatches.values().next().value };
 
   const unmatchedName = findUnmatchedPatientName(question);
   if (unmatchedName) {
@@ -114,13 +162,14 @@ function resolvePatientForQuestion(
     };
   }
 
-  return { patient: patients.find((patient) => patient.id === currentPatientId) ?? patients[0] };
+  return { patient: index.byId.get(currentPatientId) ?? index.firstPatient };
 }
 
 export default function AskLumenPage() {
   const [hasHydrated, setHasHydrated] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState("");
   const [patients, setPatients] = useState<Patient[]>([]);
+  const patientIndex = useMemo(() => buildPatientIndex(patients), [patients]);
   const [patientsLoading, setPatientsLoading] = useState(true);
   const [backendError, setBackendError] = useState("");
 
@@ -230,7 +279,7 @@ export default function AskLumenPage() {
 
     if (!finalQuestion || isSearching || !selected.id) return;
 
-    const routing = resolvePatientForQuestion(finalQuestion, patients, selectedPatient);
+    const routing = resolvePatientForQuestion(finalQuestion, patientIndex, selectedPatient);
     if (!routing.patient) {
       setBackendError(routing.error ?? "Please choose a patient before asking.");
       return;

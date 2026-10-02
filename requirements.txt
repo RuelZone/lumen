@@ -5,3 +5,5 @@ faster-whisper
 sounddevice
 numpy
 scipy
+av
+pyannote.audio>=4.0,<5.0

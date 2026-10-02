@@ -78,7 +78,7 @@ model = load_model()
 # TRANSCRIPTION
 # ============================================================
 
-def transcribe_audio(audio_path: str) -> str:
+def transcribe_audio_segments(audio_path: str) -> list[dict]:
 
     audio_file = Path(audio_path)
 
@@ -93,16 +93,29 @@ def transcribe_audio(audio_path: str) -> str:
         vad_filter=True,
     )
 
-    transcript_parts = []
+    transcript_segments = []
 
     for segment in segments:
 
         text = segment.text.strip()
 
         if text:
-            transcript_parts.append(text)
+            transcript_segments.append(
+                {
+                    "start": float(segment.start),
+                    "end": float(segment.end),
+                    "text": text,
+                }
+            )
 
-    return " ".join(transcript_parts).strip()
+    return transcript_segments
+
+
+def transcribe_audio(audio_path: str) -> str:
+    """Return a plain transcript for the standalone voice assistant."""
+    return " ".join(
+        segment["text"] for segment in transcribe_audio_segments(audio_path)
+    ).strip()
 
 
 # ============================================================

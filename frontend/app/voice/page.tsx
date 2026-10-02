@@ -1,419 +1,430 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Mic,
-  Square,
+  AlertCircle,
+  AudioLines,
   CheckCircle2,
+  ChevronDown,
+  FileText,
+  LoaderCircle,
+  Mic,
   RotateCcw,
   Save,
-  UserRound,
-  Clock3,
-  FileText,
   ShieldCheck,
-  ChevronDown,
   Sparkles,
+  Square,
+  UserRound,
 } from "lucide-react";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
 
-const patients = [
-  { id: "P001", name: "Rajesh Kumar", age: 45 },
-  { id: "P002", name: "Anjali Nair", age: 32 },
-  { id: "P003", name: "Arjun Menon", age: 51 },
-  { id: "P004", name: "Priya Menon", age: 39 },
-  { id: "P005", name: "Vivek Nair", age: 48 },
-];
+type Patient = { id: string; name: string; age: number | null };
+type TranscriptSegment = {
+  start: number;
+  end: number;
+  speaker: string;
+  text: string;
+};
 
 export default function VoicePage() {
-  const [selectedPatient, setSelectedPatient] = useState("P001");
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState("");
+  const [patientsLoading, setPatientsLoading] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
-  const [hasRecording, setHasRecording] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const [isSaved, setIsSaved] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [segments, setSegments] = useState<TranscriptSegment[]>([]);
+  const [speakers, setSpeakers] = useState<string[]>([]);
+  const [speakerRoles, setSpeakerRoles] = useState<Record<string, string>>({});
+  const [report, setReport] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
-  const patient = patients.find((p) => p.id === selectedPatient)!;
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  const discardRecordingRef = useRef(false);
 
-  const transcript =
-    "Patient reports feeling fatigued for the past three days. No fever reported. Appetite remains normal. Follow-up advised after reviewing the latest laboratory results.";
+  const patient = useMemo(
+    () => patients.find((item) => item.id === selectedPatient),
+    [patients, selectedPatient],
+  );
+  const assignedRoles = Object.values(speakerRoles);
+  const canSummarize =
+    assignedRoles.filter((role) => role === "Doctor").length === 1 &&
+    assignedRoles.filter((role) => role === "Patient").length === 1;
 
-  const startRecording = () => {
-    setIsSaved(false);
-    setHasRecording(false);
-    setIsRecording(true);
-  };
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/patients", { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Could not load patients.");
+        return data as Patient[];
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setPatients(data);
+        setSelectedPatient(data[0]?.id ?? "");
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) {
+          setError(reason instanceof Error ? reason.message : "Could not load patients.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPatientsLoading(false);
+      });
 
-  const stopRecording = () => {
+    return () => {
+      cancelled = true;
+      const recorder = recorderRef.current;
+      if (recorder && recorder.state !== "inactive") {
+        recorder.onstop = null;
+        recorder.stop();
+      }
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  function clearConsultation() {
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      discardRecordingRef.current = true;
+      recorder.onstop = null;
+      recorder.stop();
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    recorderRef.current = null;
+    streamRef.current = null;
+    chunksRef.current = [];
     setIsRecording(false);
-    setHasRecording(true);
-  };
+    setAudioBlob(null);
+    setSegments([]);
+    setSpeakers([]);
+    setSpeakerRoles({});
+    setReport("");
+    setSaved(false);
+    setError("");
+  }
 
-  const transcribe = () => {
-    setIsTranscribing(true);
+  async function startRecording() {
+    setError("");
+    setSaved(false);
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        throw new Error("This browser does not support local audio recording.");
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      discardRecordingRef.current = false;
 
-    setTimeout(() => {
-      setIsTranscribing(false);
-    }, 1400);
-  };
+      const supportedType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
+        .find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = supportedType
+        ? new MediaRecorder(stream, { mimeType: supportedType })
+        : new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        if (!discardRecordingRef.current) {
+          const recording = new Blob(chunksRef.current, {
+            type: recorder.mimeType || "audio/webm",
+          });
+          if (recording.size > 0) setAudioBlob(recording);
+          else setError("No audio was captured. Please try recording again.");
+        }
+        setIsRecording(false);
+      };
+      recorder.start(1000);
+      setAudioBlob(null);
+      setSegments([]);
+      setSpeakers([]);
+      setSpeakerRoles({});
+      setReport("");
+      setIsRecording(true);
+    } catch (reason) {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      setError(reason instanceof Error ? reason.message : "Could not start recording.");
+    }
+  }
 
-  const saveNote = () => {
-    setIsSaved(true);
-  };
+  function stopRecording() {
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+  }
 
-  const reset = () => {
-    setIsRecording(false);
-    setHasRecording(false);
-    setIsTranscribing(false);
-    setIsSaved(false);
-  };
+  async function transcribeConsultation() {
+    if (!audioBlob || !selectedPatient) return;
+    setIsProcessing(true);
+    setError("");
+    setSaved(false);
+    try {
+      const response = await fetch("/api/consultations/transcribe", {
+        method: "POST",
+        headers: {
+          "Content-Type": audioBlob.type || "audio/webm",
+          "X-Patient-Id": selectedPatient,
+        },
+        body: audioBlob,
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not process the recording.");
+      setSegments(data.segments as TranscriptSegment[]);
+      setSpeakers(data.speakers as string[]);
+      setSpeakerRoles(Object.fromEntries((data.speakers as string[]).map((speaker) => [speaker, ""])));
+      setReport("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not process the recording.");
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
+  async function generateReport() {
+    if (!selectedPatient || !canSummarize) return;
+    setIsSummarizing(true);
+    setError("");
+    setSaved(false);
+    try {
+      const response = await fetch("/api/consultations/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patientId: selectedPatient, segments, speakerRoles }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not draft the report.");
+      setReport(data.report as string);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not draft the report.");
+    } finally {
+      setIsSummarizing(false);
+    }
+  }
+
+  async function saveReport() {
+    if (!selectedPatient || !report.trim()) return;
+    setIsSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/consultations/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patientId: selectedPatient, report }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not save the report.");
+      setSaved(true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not save the report.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Sidebar />
-
       <div className="ml-[250px] min-h-screen">
         <Header />
-
         <main className="px-8 py-8">
           <div className="mx-auto max-w-5xl">
-            {/* Page header */}
             <div className="mb-8">
               <div className="mb-3 flex items-center gap-2">
                 <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-lumen-border bg-card">
                   <Mic size={14} className="text-lumen-green" />
                 </div>
-
                 <span className="text-xs font-medium uppercase tracking-[0.14em] text-lumen-muted">
                   Voice Notes
                 </span>
               </div>
-
               <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-                Record a note
+                Record a consultation
               </h1>
-
               <p className="mt-2 max-w-2xl text-sm leading-6 text-lumen-muted">
-                Dictate a clinical note and save the transcription directly to
-                the selected patient&apos;s local record.
+                Record locally, separate doctor and patient speech, then review a Qwen-drafted report before saving it to the patient record.
               </p>
             </div>
 
-            {/* Patient selector */}
+            {error && (
+              <div role="alert" className="mb-5 flex items-start gap-2 rounded-xl border border-rose-300/40 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">
+                <AlertCircle size={17} className="mt-0.5 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
             <section className="mb-6 rounded-2xl border border-lumen-border bg-card p-5 shadow-sm">
               <div className="mb-3 flex items-center gap-2">
                 <UserRound size={16} className="text-lumen-muted" />
-
-                <span className="text-sm font-medium text-foreground">
-                  Patient
-                </span>
+                <span className="text-sm font-medium text-foreground">Patient</span>
               </div>
-
               <div className="relative max-w-md">
                 <select
                   value={selectedPatient}
-                  onChange={(e) => {
-                    setSelectedPatient(e.target.value);
-                    reset();
+                  disabled={patientsLoading || patients.length === 0 || isRecording || isProcessing || isSummarizing || isSaving}
+                  onChange={(event) => {
+                    setSelectedPatient(event.target.value);
+                    clearConsultation();
                   }}
-                  className="w-full appearance-none rounded-xl border border-lumen-border bg-input px-4 py-3 pr-10 text-sm font-medium text-foreground outline-none transition focus:border-lumen-green"
+                  className="w-full appearance-none rounded-xl border border-lumen-border bg-input px-4 py-3 pr-10 text-sm font-medium text-foreground outline-none transition focus:border-lumen-green disabled:opacity-60"
                 >
+                  {patientsLoading ? <option value="">Loading patients…</option> : null}
+                  {!patientsLoading && patients.length === 0 ? <option value="">No local patients</option> : null}
                   {patients.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} · {item.id} · {item.age} years
-                    </option>
+                    <option key={item.id} value={item.id}>{item.name} · {item.id}</option>
                   ))}
                 </select>
-
-                <ChevronDown
-                  size={16}
-                  className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-lumen-muted"
-                />
+                <ChevronDown size={16} className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-lumen-muted" />
               </div>
-
-              <div className="mt-3 flex items-center gap-2 text-xs text-lumen-muted">
-                <span className="h-1.5 w-1.5 rounded-full bg-lumen-green" />
-                Note will be stored under {patient.name}&apos;s local record.
-              </div>
-            </section>
-
-            {/* Main recording card */}
-            <section className="overflow-hidden rounded-2xl border border-lumen-border bg-card shadow-sm">
-              {/* Top bar */}
-              <div className="flex items-center justify-between border-b border-lumen-border px-6 py-4">
-                <div>
-                  <p className="text-sm font-medium text-foreground">
-                    Doctor&apos;s dictation
-                  </p>
-
-                  <p className="mt-0.5 text-xs text-lumen-muted">
-                    {isRecording
-                      ? "Recording locally..."
-                      : hasRecording
-                        ? "Recording captured"
-                        : "Ready to record"}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 rounded-full border border-lumen-border bg-card-hover px-3 py-1.5">
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      isRecording
-                        ? "animate-pulse bg-red-500"
-                        : "bg-lumen-green"
-                    }`}
-                  />
-
-                  <span className="text-[11px] font-medium text-lumen-muted">
-                    {isRecording ? "Recording" : "Local"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Recorder */}
-              <div className="px-6 py-10">
-                <div className="mx-auto max-w-2xl">
-                  {/* Waveform */}
-                  <div className="flex h-28 items-center justify-center gap-[5px]">
-                    {Array.from({ length: 48 }).map((_, index) => {
-                      const heights = [
-                        18, 28, 14, 36, 22, 44, 30, 20, 48, 26, 38, 18,
-                        52, 32, 22, 42, 28, 56, 34, 20, 46, 30, 38, 24,
-                        50, 28, 18, 42, 32, 54, 24, 40, 20, 48, 30, 22,
-                        44, 28, 36, 18, 50, 26, 40, 22, 46, 30, 20, 34,
-                      ];
-
-                      return (
-                        <span
-                          key={index}
-                          className={`w-[3px] rounded-full transition-all duration-300 ${
-                            isRecording
-                              ? "bg-lumen-green"
-                              : hasRecording
-                                ? "bg-lumen-green/60"
-                                : "bg-lumen-border"
-                          }`}
-                          style={{
-                            height: `${heights[index]}px`,
-                            opacity: isRecording
-                              ? 0.55 + ((index % 5) * 0.1)
-                              : hasRecording
-                                ? 0.7
-                                : 1,
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-
-                  {/* Recording status */}
-                  <div className="mb-8 text-center">
-                    {isRecording ? (
-                      <>
-                        <p className="text-sm font-medium text-foreground">
-                          Listening...
-                        </p>
-
-                        <div className="mt-2 flex items-center justify-center gap-2 text-xs text-lumen-muted">
-                          <Clock3 size={13} />
-                          Recording your note
-                        </div>
-                      </>
-                    ) : hasRecording ? (
-                      <>
-                        <p className="text-sm font-medium text-foreground">
-                          Recording ready
-                        </p>
-
-                        <p className="mt-2 text-xs text-lumen-muted">
-                          Transcribe it to review the note before saving.
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-sm font-medium text-foreground">
-                          Start when you&apos;re ready
-                        </p>
-
-                        <p className="mt-2 text-xs text-lumen-muted">
-                          Your voice stays on this device.
-                        </p>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Record button */}
-                  <div className="flex justify-center">
-                    {!isRecording ? (
-                      <button
-                        onClick={startRecording}
-                        className="group flex h-16 w-16 items-center justify-center rounded-full bg-lumen-navy text-white shadow-lg transition hover:scale-[1.03] hover:shadow-xl dark:text-[#0B1110]"
-                        aria-label="Start recording"
-                      >
-                        <Mic
-                          size={25}
-                          className="transition group-hover:scale-105"
-                        />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={stopRecording}
-                        className="group flex h-16 w-16 items-center justify-center rounded-full border-2 border-red-200 bg-red-50 text-red-600 shadow-sm transition hover:scale-[1.03] dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400"
-                        aria-label="Stop recording"
-                      >
-                        <Square size={21} fill="currentColor" />
-                      </button>
-                    )}
-                  </div>
-
-                  <p className="mt-4 text-center text-[11px] text-lumen-muted">
-                    {isRecording
-                      ? "Click to stop"
-                      : "Click the microphone to begin"}
-                  </p>
-                </div>
-              </div>
-
-              {/* Recording actions */}
-              {hasRecording && !isSaved && (
-                <div className="border-t border-lumen-border bg-card-hover px-6 py-5">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-lumen-border bg-card">
-                        <Clock3 size={15} className="text-lumen-muted" />
-                      </div>
-
-                      <div>
-                        <p className="text-sm font-medium text-foreground">
-                          Recording captured
-                        </p>
-                        <p className="text-xs text-lumen-muted">
-                          Ready for local transcription
-                        </p>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={transcribe}
-                      disabled={isTranscribing}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-lumen-navy px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 dark:text-[#0B1110]"
-                    >
-                      <Sparkles size={15} />
-
-                      {isTranscribing
-                        ? "Transcribing..."
-                        : "Transcribe locally"}
-                    </button>
-                  </div>
+              {patient && (
+                <div className="mt-3 flex items-center gap-2 text-xs text-lumen-muted">
+                  <span className="h-1.5 w-1.5 rounded-full bg-lumen-green" />
+                  Report will be saved under {patient.name}&apos;s patient record.
                 </div>
               )}
             </section>
 
-            {/* Transcript */}
-            {hasRecording && !isTranscribing && (
+            <section className="overflow-hidden rounded-2xl border border-lumen-border bg-card shadow-sm">
+              <div className="flex items-center justify-between border-b border-lumen-border px-6 py-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Consultation recording</p>
+                  <p className="mt-0.5 text-xs text-lumen-muted">
+                    {isRecording ? "Recording the full conversation locally…" : audioBlob ? "Recording captured" : "Ready to record"}
+                  </p>
+                </div>
+                <span className="flex items-center gap-2 rounded-full border border-lumen-border bg-card-hover px-3 py-1.5 text-[11px] font-medium text-lumen-muted">
+                  <span className={`h-1.5 w-1.5 rounded-full ${isRecording ? "animate-pulse bg-red-500" : "bg-lumen-green"}`} />
+                  {isRecording ? "Recording" : "Local"}
+                </span>
+              </div>
+              <div className="px-6 py-10 text-center">
+                <div className={`mx-auto flex h-24 w-24 items-center justify-center rounded-full ${isRecording ? "bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300" : "bg-lumen-green-light text-lumen-green"}`}>
+                  {isRecording ? <AudioLines size={34} className="animate-pulse" /> : <Mic size={32} />}
+                </div>
+                <p className="mt-5 text-sm font-medium text-foreground">
+                  {isRecording ? "Listening to the consultation…" : audioBlob ? "Full consultation ready" : "Start when the doctor and patient are ready"}
+                </p>
+                <p className="mx-auto mt-2 max-w-lg text-xs leading-5 text-lumen-muted">
+                  Keep both speakers audible. Lumen labels voices as Speaker 1 and Speaker 2; you will confirm which is the doctor and patient before drafting the report.
+                </p>
+                <div className="mt-6 flex justify-center gap-3">
+                  {!isRecording ? (
+                    <button type="button" onClick={startRecording} disabled={!patient || patientsLoading || isProcessing || isSummarizing || isSaving} className="inline-flex items-center gap-2 rounded-xl bg-lumen-navy px-5 py-3 text-sm font-medium text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#0B1110]">
+                      <Mic size={16} /> Start consultation
+                    </button>
+                  ) : (
+                    <button type="button" onClick={stopRecording} className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-5 py-3 text-sm font-medium text-white shadow-sm transition hover:bg-rose-700">
+                      <Square size={15} fill="currentColor" /> Stop recording
+                    </button>
+                  )}
+                  {audioBlob && !isRecording && (
+                    <button type="button" onClick={clearConsultation} className="inline-flex items-center gap-2 rounded-xl border border-lumen-border px-4 py-3 text-sm font-medium text-foreground transition hover:bg-card-hover">
+                      <RotateCcw size={15} /> Discard
+                    </button>
+                  )}
+                </div>
+              </div>
+              {audioBlob && !segments.length && (
+                <div className="flex flex-col gap-3 border-t border-lumen-border bg-card-hover px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Ready for local analysis</p>
+                    <p className="mt-1 text-xs text-lumen-muted">Whisper transcribes; the diarization model labels the two voices.</p>
+                  </div>
+                  <button type="button" onClick={transcribeConsultation} disabled={isProcessing} className="inline-flex items-center justify-center gap-2 rounded-xl bg-lumen-navy px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60 dark:text-[#0B1110]">
+                    {isProcessing ? <LoaderCircle size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                    {isProcessing ? "Transcribing and separating voices…" : "Transcribe and identify speakers"}
+                  </button>
+                </div>
+              )}
+            </section>
+
+            {segments.length > 0 && !report && (
               <section className="mt-6 rounded-2xl border border-lumen-border bg-card shadow-sm">
-                <div className="flex items-center justify-between border-b border-lumen-border px-6 py-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-lumen-border bg-card-hover">
-                      <FileText size={16} className="text-lumen-muted" />
-                    </div>
-
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
-                        Transcription
-                      </p>
-
-                      <p className="text-xs text-lumen-muted">
-                        Review before saving to the patient record
-                      </p>
-                    </div>
-                  </div>
-
-                  <span className="rounded-full border border-lumen-border bg-card-hover px-3 py-1 text-[11px] font-medium text-lumen-muted">
-                    Local transcription
-                  </span>
+                <div className="border-b border-lumen-border px-6 py-4">
+                  <p className="text-sm font-medium text-foreground">Confirm who is speaking</p>
+                  <p className="mt-1 text-xs text-lumen-muted">Speaker labels are estimated from voice characteristics. Assign roles before asking Qwen to draft the report.</p>
                 </div>
-
-                <div className="p-6">
-                  <div className="rounded-xl border border-lumen-border bg-input p-5">
-                    <p className="text-sm leading-7 text-foreground">
-                      {transcript}
-                    </p>
-                  </div>
-
-                  <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-end">
-                    <button
-                      onClick={reset}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-lumen-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition hover:bg-card-hover"
-                    >
-                      <RotateCcw size={15} />
-                      Record again
-                    </button>
-
-                    <button
-                      onClick={saveNote}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-lumen-navy px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 dark:text-[#0B1110]"
-                    >
-                      <Save size={15} />
-                      Save to record
-                    </button>
-                  </div>
+                <div className="grid gap-4 border-b border-lumen-border p-5 sm:grid-cols-2">
+                  {speakers.map((speaker, index) => (
+                    <label key={speaker} className="text-xs font-medium text-lumen-muted">
+                      {`Speaker ${index + 1} · ${speaker}`}
+                      <select value={speakerRoles[speaker] ?? ""} onChange={(event) => setSpeakerRoles((current) => ({ ...current, [speaker]: event.target.value }))} className="mt-2 w-full rounded-xl border border-lumen-border bg-input px-3 py-2.5 text-sm text-foreground outline-none focus:border-lumen-green">
+                        <option value="">Choose role…</option>
+                        <option value="Doctor">Doctor</option>
+                        <option value="Patient">Patient</option>
+                        <option value="Other">Other participant</option>
+                      </select>
+                    </label>
+                  ))}
                 </div>
-              </section>
-            )}
-
-            {/* Saved state */}
-            {isSaved && (
-              <section className="mt-6 rounded-2xl border border-lumen-border bg-card p-6 shadow-sm">
-                <div className="flex items-start gap-4">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-lumen-green-light">
-                    <CheckCircle2
-                      size={19}
-                      className="text-lumen-green"
-                    />
+                {speakers.length < 2 && (
+                  <div className="border-b border-lumen-border px-5 py-3 text-xs text-amber-700 dark:text-amber-300">
+                    Lumen detected fewer than two distinct voices. Check that both speakers are audible, then discard and record again.
                   </div>
-
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-foreground">
-                      Note saved to {patient.name}&apos;s record
-                    </p>
-
-                    <p className="mt-1 text-sm leading-6 text-lumen-muted">
-                      The transcription is now part of the patient&apos;s local
-                      record and can be retrieved by Lumen.
-                    </p>
-
-                    <div className="mt-4 flex items-center gap-2 text-xs text-lumen-muted">
-                      <FileText size={13} />
-                      Voice note · Today
+                )}
+                <div className="max-h-80 space-y-2 overflow-y-auto p-5">
+                  {segments.map((segment, index) => (
+                    <div key={`${segment.start}-${index}`} className="grid grid-cols-[56px_110px_1fr] gap-3 rounded-lg bg-card-hover px-3 py-2.5 text-xs">
+                      <span className="font-mono text-lumen-muted">{`${Math.floor(segment.start / 60)}:${String(Math.floor(segment.start % 60)).padStart(2, "0")}`}</span>
+                      <span className="font-semibold text-lumen-green">{speakerRoles[segment.speaker] || segment.speaker}</span>
+                      <span className="leading-5 text-foreground">{segment.text}</span>
                     </div>
-                  </div>
-
-                  <button
-                    onClick={reset}
-                    className="rounded-lg border border-lumen-border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card-hover"
-                  >
-                    New note
+                  ))}
+                </div>
+                <div className="flex flex-col gap-3 border-t border-lumen-border bg-card-hover px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-lumen-muted">Check the labels and transcript before generating a report.</p>
+                  <button type="button" onClick={generateReport} disabled={!canSummarize || isSummarizing} className="inline-flex items-center justify-center gap-2 rounded-xl bg-lumen-navy px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#0B1110]">
+                    {isSummarizing ? <LoaderCircle size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                    {isSummarizing ? "Qwen is drafting…" : "Draft report with Qwen"}
                   </button>
                 </div>
               </section>
             )}
 
-            {/* Privacy / local AI note */}
+            {report && (
+              <section className="mt-6 rounded-2xl border border-lumen-border bg-card shadow-sm">
+                <div className="flex items-center justify-between border-b border-lumen-border px-6 py-4">
+                  <div className="flex items-center gap-3">
+                    <FileText size={17} className="text-lumen-green" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Consultation report draft</p>
+                      <p className="mt-0.5 text-xs text-lumen-muted">Generated locally with Qwen · Review and edit before saving</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-5">
+                  <textarea value={report} onChange={(event) => setReport(event.target.value)} rows={16} aria-label="Review and edit consultation report" className="w-full resize-y rounded-xl border border-lumen-border bg-input p-4 text-sm leading-6 text-foreground outline-none focus:border-lumen-green" />
+                  <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs text-lumen-muted">The report will be indexed for future Ask Lumen questions.</p>
+                    <button type="button" onClick={saveReport} disabled={!report.trim() || isSaving || saved} className="inline-flex items-center justify-center gap-2 rounded-xl bg-lumen-navy px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#0B1110]">
+                      {isSaving ? <LoaderCircle size={15} className="animate-spin" /> : <Save size={15} />}
+                      {saved ? "Saved to patient record" : isSaving ? "Saving…" : `Save report for ${patient?.name ?? "patient"}`}
+                    </button>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {saved && patient && (
+              <div role="status" className="mt-5 flex items-start gap-3 rounded-xl border border-lumen-border bg-lumen-green-light p-4 text-sm text-foreground">
+                <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-lumen-green" />
+                <span>The reviewed consultation report is saved and searchable under {patient.name}&apos;s record.</span>
+              </div>
+            )}
+
             <div className="mt-6 flex items-start gap-3 rounded-xl border border-lumen-border bg-card-hover px-5 py-4">
-              <ShieldCheck
-                size={17}
-                className="mt-0.5 shrink-0 text-lumen-green"
-              />
-
+              <ShieldCheck size={17} className="mt-0.5 shrink-0 text-lumen-green" />
               <div>
-                <p className="text-xs font-medium text-foreground">
-                  Runs locally
-                </p>
-
-                <p className="mt-1 text-xs leading-5 text-lumen-muted">
-                  Voice transcription is designed to run locally using
-                  Whisper. No audio needs to leave the doctor&apos;s workspace.
-                </p>
+                <p className="text-xs font-medium text-foreground">Local processing with clinician review</p>
+                <p className="mt-1 text-xs leading-5 text-lumen-muted">Audio is sent only to this device&apos;s local Python service for transcription and speaker separation. Review the generated report before saving it to the patient record.</p>
               </div>
             </div>
           </div>

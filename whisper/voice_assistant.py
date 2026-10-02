@@ -1,6 +1,14 @@
+import re
+
 from wake_word import listen_for_wake_word
 from recorder import record_command
 from transcribe import transcribe_audio
+
+
+def is_sleep_word(transcript: str) -> bool:
+    """Stop dictation only when Whisper hears the standalone word 'bye'."""
+    words = re.findall(r"[a-z]+", transcript.lower())
+    return "bye" in words
 
 
 def run_voice_assistant():
@@ -20,52 +28,42 @@ def run_voice_assistant():
         if not detected:
             break
 
-        # ----------------------------------------------------
-        # RECORD DOCTOR COMMAND
-        # ----------------------------------------------------
+        print("Dictation started. Say 'bye' to stop and return to wake-word listening.")
 
-        try:
+        while True:
+            # ----------------------------------------------------
+            # RECORD DOCTOR COMMAND
+            # ----------------------------------------------------
+            try:
+                audio_file = record_command(filename="command.wav")
 
-            audio_file = record_command(
-                filename="command.wav"
-            )
+            except RuntimeError as error:
+                print(f"\nRecording stopped: {error}")
+                print("Returning to wake-word listener...\n")
+                break
 
-        except RuntimeError as error:
+            # ----------------------------------------------------
+            # TRANSCRIBE THIS CLIP
+            # ----------------------------------------------------
+            print("\nTranscribing command...")
+            transcript = transcribe_audio(audio_file)
 
-            print(f"\nRecording error: {error}")
-            print("Returning to wake-word listener...\n")
+            if is_sleep_word(transcript):
+                print("\nSleep word 'bye' detected. Dictation stopped.")
+                print("Say 'Hey Lumen' when you want to start again.\n")
+                break
 
-            continue
+            print("\n" + "=" * 60)
+            print("LUMEN COMMAND")
+            print("=" * 60)
 
-        # ----------------------------------------------------
-        # TRANSCRIBE
-        # ----------------------------------------------------
+            if transcript:
+                print(transcript)
+            else:
+                print("[No speech detected]")
 
-        print("\nTranscribing command...")
-
-        transcript = transcribe_audio(
-            audio_file
-        )
-
-        print("\n" + "=" * 60)
-        print("LUMEN COMMAND")
-        print("=" * 60)
-
-        if transcript:
-
-            print(transcript)
-
-        else:
-
-            print("[No speech detected]")
-
-        print("=" * 60)
-
-        # ----------------------------------------------------
-        # TEMPORARY
-        # ----------------------------------------------------
-
-        print("\nWaiting for next command...")
+            print("=" * 60)
+            print("\nListening for the next dictation clip. Say 'bye' to stop.")
 
 
 if __name__ == "__main__":

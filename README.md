@@ -34,7 +34,7 @@ From the repository root, create and activate a virtual environment, then instal
 py -3.10 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install chromadb llama-cpp-python sentence-transformers faster-whisper sounddevice numpy scipy
+python -m pip install -r requirements.txt
 ```
 
 To cache the embedding model once while internet access is available:
@@ -42,6 +42,15 @@ To cache the embedding model once while internet access is available:
 ```powershell
 python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 ```
+
+To use local speaker separation, sign in to Hugging Face and accept the access conditions for [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1). Then cache the model once while online:
+
+```powershell
+hf auth login
+python backend\download_diarization_model.py
+```
+
+The audio analysis runs on the local machine after the model is cached. The first download requires Hugging Face access for the gated model.
 
 Install frontend packages:
 
@@ -104,6 +113,12 @@ Example using fictional data:
 
    Open `http://localhost:3000`. Ask Lumen uses the local `/api/patients` and `/api/chat` routes, which proxy requests to the Python API.
 
+## Voice consultation reports
+
+The Voice Notes page records a complete consultation in the browser, sends the audio to the local Python service, and runs faster-whisper transcription plus pyannote two-speaker diarization. The doctor reviews and assigns the detected speaker labels to Doctor and Patient, then Qwen drafts an editable report. Saving the reviewed report stores it as a patient note in SQLite and indexes it in ChromaDB so Ask Lumen can retrieve it later.
+
+The report is a draft until the doctor reviews and saves it. Speaker labels are estimates and do not automatically establish real-world identity. For recording, both participants should be audible; overlapping speech may be assigned imperfectly.
+
 ## Whisper voice prototype
 
 The scripts in `whisper/` can record microphone audio, detect “Hey Lumen,” and transcribe WAV audio with faster-whisper. Run the command-line prototype from that directory:
@@ -113,12 +128,15 @@ cd whisper
 python voice_assistant.py
 ```
 
-Whisper is not yet connected to the website's Voice Notes page, the chat API, or patient-note storage. The Voice Notes page currently simulates recording, transcription, and saving; it does not send microphone audio to the Python Whisper scripts.
+The standalone wake-word assistant detects “Hey Lumen,” transcribes dictation clips, and stops dictation when it hears the standalone word “bye.” Consultation recording on the website is a separate full-session flow.
 
 ## Current API
 
 - `GET /health` — local backend health check
 - `GET /patients` — list stored patients
 - `POST /chat` — ask a question about one patient's indexed notes; JSON body: `{"patientId":"P001","question":"What was the latest result?"}`
+- `POST /consultations/transcribe` — send raw browser audio with an `X-Patient-Id` header; returns timestamped transcript segments and speaker labels
+- `POST /consultations/summarize` — send the selected patient, transcript segments, and doctor/patient speaker assignments; returns a Qwen report draft
+- `POST /consultations/save` — save the doctor-reviewed report as a patient note in SQLite and ChromaDB
 
-The backend also contains Python functions for note ingestion, note creation, and patient summaries. The HTTP API currently exposes patient listing and chat; it does not yet expose note creation or transcription endpoints.
+The diarization model and Whisper transcription model must be cached before running with network access disabled. Consultation processing and Qwen report generation run locally.

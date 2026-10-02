@@ -208,6 +208,18 @@ def get_all_patients() -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def get_patient_by_id(patient_id: str) -> dict | None:
+    """Return one patient by ID without scanning the full patient list."""
+    init_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT id, name, age FROM patients WHERE id = ?",
+            (str(patient_id),),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def ask_chatbot(patient_id: str, question: str, n_results: int = 8) -> tuple[str, list[str]]:
     """Answer a question using only the most relevant notes for this patient.
 
