@@ -1,4 +1,4 @@
-chromadb==1.5.9
-llama_cpp_python==0.3.36
-pywhispercpp==1.5.1
-sentence-transformers==6.1.0
+faster-whisper
+sounddevice
+numpy
+scipy
