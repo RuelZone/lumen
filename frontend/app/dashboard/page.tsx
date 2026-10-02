@@ -3,12 +3,9 @@
 import Link from "next/link";
 import {
   ArrowRight,
-  Bot,
   ChevronRight,
   FileText,
   Mic,
-  Search,
-  Sparkles,
   Users,
   Wifi,
 } from "lucide-react";
@@ -16,6 +13,7 @@ import {
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
 import { PixelBulb } from "@/components/ui/pixel-bulb";
+import CountUp from "@/components/ui/count-up";
 
 const patients = [
   {
@@ -102,17 +100,6 @@ export default function DashboardPage() {
                 </p>
               </div>
 
-              <Link
-                href="/ai"
-                className="group inline-flex shrink-0 items-center justify-center gap-2.5 rounded-xl bg-[#172033] px-5 py-3 text-sm font-semibold text-white hover:bg-[#253149] dark:bg-[#EEF2EF] dark:text-[#0B1110] dark:hover:bg-white shadow-xs"
-              >
-                <PixelBulb size="sm" glow />
-                Ask Lumen
-                <ArrowRight
-                  size={16}
-                  className="transition-transform group-hover:translate-x-0.5"
-                />
-              </Link>
             </div>
           </section>
 
@@ -121,19 +108,19 @@ export default function DashboardPage() {
             {[
               {
                 icon: Users,
-                value: "24",
+                value: 24,
                 label: "Patients",
                 meta: "My workspace",
               },
               {
                 icon: FileText,
-                value: "186",
+                value: 186,
                 label: "Documented records",
                 meta: "+12 recently",
               },
               {
                 icon: Mic,
-                value: "6",
+                value: 6,
                 label: "Voice notes",
                 meta: "Local",
               },
@@ -156,7 +143,7 @@ export default function DashboardPage() {
                   </div>
 
                   <p className="mt-5 text-3xl font-bold text-[#172033] dark:text-[#EEF2EF]">
-                    {item.value}
+                    <CountUp value={item.value} />
                   </p>
 
                   <p className="mt-1 text-sm text-[#667085] dark:text-[#929C97]">
@@ -254,17 +241,17 @@ export default function DashboardPage() {
 
               <div className="mt-6 grid grid-cols-2 gap-2">
                 {[
-                  ["186", "Records"],
-                  ["24", "Patients"],
-                  ["12", "Lab results"],
-                  ["6", "Voice notes"],
-                ].map(([value, label]) => (
+                  { value: 186, label: "Records" },
+                  { value: 24, label: "Patients" },
+                  { value: 12, label: "Lab results" },
+                  { value: 6, label: "Voice notes" },
+                ].map(({ value, label }) => (
                   <div
                     key={label}
                     className="rounded-xl bg-[#F7F9F8] p-3 dark:bg-[#171F1D]"
                   >
                     <p className="text-lg font-bold text-[#172033] dark:text-[#EEF2EF]">
-                      {value}
+                      <CountUp value={value} />
                     </p>
 
                     <p className="mt-0.5 text-[10px] text-[#667085] dark:text-[#929C97]">
@@ -289,13 +276,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <Link
-                href="/ai"
-                className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-[#172033] px-4 py-3 text-xs font-semibold text-white hover:bg-[#253149] dark:bg-[#EEF2EF] dark:text-[#0B1110] dark:hover:bg-white"
-              >
-                <Search size={14} />
-                Search your memory
-              </Link>
             </div>
           </section>
 
