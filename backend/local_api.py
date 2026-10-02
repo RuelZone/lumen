@@ -2,6 +2,7 @@
 
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import unquote
 
 from consultation_service import (
     MAX_AUDIO_BYTES,
@@ -9,7 +10,7 @@ from consultation_service import (
     save_consultation_report,
     summarize_consultation,
 )
-from rag_backend import ask_chatbot, get_all_patients
+from rag_backend import ask_chatbot, get_all_patients, get_patient_record, sync_patients_from_json
 
 
 HOST = "127.0.0.1"
@@ -30,6 +31,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True})
         elif self.path == "/patients":
             self._json(get_all_patients())
+        elif self.path.startswith("/patients/"):
+            patient_id = unquote(self.path.removeprefix("/patients/").split("?", 1)[0])
+            patient = get_patient_record(patient_id)
+            if patient is None:
+                self._json({"error": "Patient not found"}, 404)
+            else:
+                self._json(patient)
         else:
             self._json({"error": "Not found"}, 404)
 
@@ -111,5 +119,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    synced = sync_patients_from_json()
+    if synced:
+        print(f"Synced {synced} patients from patients.json")
     print(f"Lumen local backend ready at http://{HOST}:{PORT}")
     HTTPServer((HOST, PORT), Handler).serve_forever()
