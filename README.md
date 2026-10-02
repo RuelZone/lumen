@@ -10,20 +10,21 @@ This is a hackathon/demo prototype, not a validated clinical system. Use synthet
 backend/
   local_api.py       Local HTTP API used by the frontend
   rag_backend.py     SQLite, ChromaDB, embeddings, RAG and summaries
-  models/            Local Qwen GGUF model (download separately)
+  models/            Optional location for the local Qwen GGUF model
   patients.json      Optional initial patient dataset
-  hospital.db        Created at runtime
-  chroma_db/         Created at runtime
 frontend/            Next.js web application
+models/               Existing root-level local models, if present
+hospital.db           Existing root-level SQLite data, if present
+chroma_db/            Existing root-level vector index, if present
 whisper/             Standalone microphone, wake phrase and transcription prototype
 ```
 
-The Python backend expects its model and data files relative to `backend/`. Generated databases and model files should stay local and should not be committed.
+The backend checks both `backend/models/` and the project-root `models/` for the Qwen model. It reuses existing project-root `hospital.db` and `chroma_db/` stores when present; otherwise it creates new stores under `backend/`. Generated databases and model files should stay local and should not be committed.
 
 ## Requirements
 
 - Windows, Python 3.10, and Node.js/npm
-- The Qwen2.5 3B Instruct Q4_K_M GGUF file at `backend/models/qwen2.5-3b-instruct-q4_k_m.gguf`
+- The Qwen2.5 3B Instruct Q4_K_M GGUF file in either `backend/models/` or the project-root `models/` folder
 - The `all-MiniLM-L6-v2` sentence-transformer model available in the local Hugging Face cache before starting the backend. The backend enables offline model loading.
 - A microphone for the standalone Whisper prototype
 

@@ -24,20 +24,44 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "models" / "qwen2.5-3b-instruct-q4_k_m.gguf"
-# Accept the capitalized filename used by the earlier setup smoke test too.
-if not MODEL_PATH.is_file():
-    capitalized_model = BASE_DIR / "models" / "Qwen2.5-3B-Instruct-Q4_K_M.gguf"
-    if capitalized_model.is_file():
-        MODEL_PATH = capitalized_model
+MODEL_NAMES = (
+    "qwen2.5-3b-instruct-q4_k_m.gguf",
+    "Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+)
+MODEL_LOCATIONS = (
+    BASE_DIR / "models",
+    BASE_DIR.parent / "models",
+)
+MODEL_PATH = next(
+    (
+        directory / filename
+        for directory in MODEL_LOCATIONS
+        for filename in MODEL_NAMES
+        if (directory / filename).is_file()
+    ),
+    MODEL_LOCATIONS[0] / MODEL_NAMES[0],
+)
 
-DB_PATH = BASE_DIR / "hospital.db"
-CHROMA_PATH = BASE_DIR / "chroma_db"
+ROOT_DIR = BASE_DIR.parent
+# Reuse the original project-root stores when upgrading from the earlier layout.
+# On a fresh install, keep generated data alongside the backend instead.
+DB_PATH = (
+    ROOT_DIR / "hospital.db"
+    if (ROOT_DIR / "hospital.db").is_file()
+    else BASE_DIR / "hospital.db"
+)
+CHROMA_PATH = (
+    ROOT_DIR / "chroma_db"
+    if (ROOT_DIR / "chroma_db").is_dir()
+    else BASE_DIR / "chroma_db"
+)
 COLLECTION_NAME = "patient_notes"
 
 if not MODEL_PATH.is_file():
     raise FileNotFoundError(
-        f"Qwen GGUF model not found. Expected {BASE_DIR / 'models' / 'qwen2.5-3b-instruct-q4_k_m.gguf'}"
+        "Qwen GGUF model not found. Searched for either filename "
+        f"{', '.join(MODEL_NAMES)} in: "
+        f"{', '.join(str(directory) for directory in MODEL_LOCATIONS)}"
     )
 
 # Load once per process. The embedding model must already be available locally.
