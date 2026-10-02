@@ -200,12 +200,39 @@ def add_note(patient_id: str, author: str, text: str, note_date: str = None) -> 
 
 
 def get_all_patients() -> list[dict]:
-    """Return all patients as dictionaries containing id, name, and age."""
+    """Return all patients with count and date of their latest note."""
     init_db()
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT id, name, age FROM patients ORDER BY name, id").fetchall()
+        rows = conn.execute(
+            """SELECT p.id, p.name, p.age, COUNT(n.id) AS records,
+                      MAX(n.date) AS lastUpdated
+               FROM patients AS p LEFT JOIN notes AS n ON n.patient_id = p.id
+               GROUP BY p.id, p.name, p.age ORDER BY p.name, p.id"""
+        ).fetchall()
     return [dict(row) for row in rows]
+
+
+def sync_patients_from_json() -> int:
+    """Sync patient identities from the project-root JSON, retaining notes."""
+    patient_file = ROOT_DIR / "patients.json"
+    if not patient_file.is_file():
+        return 0
+    records = json.loads(patient_file.read_text(encoding="utf-8"))
+    if isinstance(records, dict):
+        records = records.get("patients", [])
+    if not isinstance(records, list):
+        raise ValueError("patients.json must contain a list of patient records.")
+    init_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        for record in records:
+            if isinstance(record, dict) and record.get("id"):
+                conn.execute(
+                    """INSERT INTO patients (id, name, age) VALUES (?, ?, ?)
+                       ON CONFLICT(id) DO UPDATE SET name=excluded.name, age=excluded.age""",
+                    (str(record["id"]), record.get("name"), record.get("age")),
+                )
+    return len(records)
 
 
 def get_patient_by_id(patient_id: str) -> dict | None:
@@ -218,6 +245,22 @@ def get_patient_by_id(patient_id: str) -> dict | None:
             (str(patient_id),),
         ).fetchone()
     return dict(row) if row else None
+
+
+def get_patient_record(patient_id: str) -> dict | None:
+    """Return one patient and their saved notes for the chart page."""
+    patient = get_patient_by_id(patient_id)
+    if patient is None:
+        return None
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        notes = conn.execute(
+            """SELECT id, date, author, text, test_name, value, flag_for_review
+               FROM notes WHERE patient_id = ? ORDER BY date DESC, id DESC""",
+            (str(patient_id),),
+        ).fetchall()
+    patient["notes"] = [dict(note) for note in notes]
+    return patient
 
 
 def ask_chatbot(patient_id: str, question: str, n_results: int = 8) -> tuple[str, list[str]]:
