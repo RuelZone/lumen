@@ -8,8 +8,8 @@ import {
 type Patient = {
   id: string;
   name: string;
-  age: number;
-  lastUpdated: string;
+  age: number | null;
+  lastUpdated: string | null;
   records: number;
 };
 
@@ -44,7 +44,7 @@ export default function PatientCard({
             </div>
 
             <p className="mt-1 text-xs text-lumen-muted">
-              {patient.age} years old
+              {patient.age === null ? "Age not recorded" : `${patient.age} years old`}
             </p>
           </div>
 
@@ -66,7 +66,7 @@ export default function PatientCard({
 
           <div className="flex items-center gap-1.5 text-xs text-lumen-muted">
             <CalendarDays size={13} />
-            <span>Updated {patient.lastUpdated}</span>
+            <span>{patient.lastUpdated ? `Updated ${patient.lastUpdated}` : "No notes yet"}</span>
           </div>
         </div>
       </article>
