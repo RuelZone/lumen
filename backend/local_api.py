@@ -1,8 +1,17 @@
 """Small localhost-only HTTP bridge between Next.js and rag_backend.py."""
 
 import json
+import sys
+import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from urllib.parse import unquote
+
+WHISPER_DIR = Path(__file__).resolve().parents[1] / "whisper"
+if str(WHISPER_DIR) not in sys.path:
+    sys.path.insert(0, str(WHISPER_DIR))
+
+from command_router import command_to_dict, route_command
 
 from consultation_service import (
     MAX_AUDIO_BYTES,
@@ -10,11 +19,18 @@ from consultation_service import (
     save_consultation_report,
     summarize_consultation,
 )
-from rag_backend import ask_chatbot, get_all_patients, get_patient_record, sync_patients_from_json
+from rag_backend import (
+    ask_chatbot,
+    get_all_patients,
+    get_patient_record,
+    sync_patients_from_json,
+)
 
 
 HOST = "127.0.0.1"
 PORT = 8765
+LATEST_VOICE_COMMAND: dict | None = None
+VOICE_COMMAND_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -38,10 +54,57 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Patient not found"}, 404)
             else:
                 self._json(patient)
+        elif self.path == "/voice-command":
+            global LATEST_VOICE_COMMAND
+            with VOICE_COMMAND_LOCK:
+                command = LATEST_VOICE_COMMAND
+                LATEST_VOICE_COMMAND = None
+            self._json({"pending": command is not None, **({"command": command} if command else {})})
         else:
             self._json({"error": "Not found"}, 404)
 
     def do_POST(self) -> None:
+        if self.path == "/voice-command":
+            global LATEST_VOICE_COMMAND
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > 32_000:
+                    self._json({"error": "Request body is empty or too large."}, 400)
+                    return
+                payload = json.loads(self.rfile.read(length))
+                if not isinstance(payload, dict):
+                    self._json({"error": "Expected a JSON object."}, 400)
+                    return
+                transcript = str(payload.get("transcript", "")).strip()
+                if not transcript:
+                    self._json({"error": "transcript is required."}, 400)
+                    return
+
+                command = route_command(transcript, get_all_patients())
+                command_data = command_to_dict(command)
+                if command.type == "open_patient" and not command.error:
+                    patient = next(
+                        (item for item in get_all_patients() if str(item["name"]).casefold() == str(command.value).casefold()),
+                        None,
+                    )
+                    if patient:
+                        command_data["value"] = str(patient["id"])
+                        command_data["patientName"] = patient["name"]
+                        command_data["route"] = f"/patients/{patient['id']}"
+                    else:
+                        command_data["error"] = f"Patient '{command.value}' was not found in the local roster."
+
+                with VOICE_COMMAND_LOCK:
+                    LATEST_VOICE_COMMAND = command_data
+                self._json({"ok": True, "command": command_data})
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._json({"error": "Invalid JSON request."}, 400)
+            except (AttributeError, TypeError, ValueError):
+                self._json({"error": "Voice command could not be understood."}, 400)
+            except Exception:
+                self._json({"error": "The local assistant could not process this voice command."}, 500)
+            return
+
         if self.path == "/consultations/transcribe":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
