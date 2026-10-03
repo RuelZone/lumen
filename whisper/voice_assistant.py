@@ -17,6 +17,27 @@ def is_sleep_word(transcript: str) -> bool:
     return "bye" in words
 
 
+def publish_voice_activity(
+    *, recording: bool, processing: bool = False, transcript: str | None = None
+) -> None:
+    """Publish microphone activity and completed transcript to the local UI."""
+    payload = {"recording": recording, "processing": processing}
+    if transcript is not None:
+        payload["transcript"] = transcript
+    request = urllib.request.Request(
+        f"{BACKEND_URL}/voice-status",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=2):
+            pass
+    except (urllib.error.URLError, TimeoutError):
+        # The voice assistant remains usable if the website backend is offline.
+        pass
+
+
 def send_command_to_backend(transcript: str) -> None:
     """Submit the transcript to the local API for validation and delivery."""
     command = command_to_dict(route_command(transcript))
@@ -53,6 +74,8 @@ def run_voice_assistant():
         if not detected:
             break
 
+        publish_voice_activity(recording=True, transcript="")
+
         print("Dictation started. Say 'bye' to stop and return to wake-word listening.")
 
         while True:
@@ -60,9 +83,11 @@ def run_voice_assistant():
             # RECORD DOCTOR COMMAND
             # ----------------------------------------------------
             try:
+                publish_voice_activity(recording=True, processing=False)
                 audio_file = record_command(filename="command.wav")
 
             except RuntimeError as error:
+                publish_voice_activity(recording=False, processing=False)
                 print(f"\nRecording stopped: {error}")
                 print("Returning to wake-word listener...\n")
                 break
@@ -71,9 +96,20 @@ def run_voice_assistant():
             # TRANSCRIBE THIS CLIP
             # ----------------------------------------------------
             print("\nTranscribing command...")
-            transcript = transcribe_audio(audio_file)
+            publish_voice_activity(recording=False, processing=True)
+            try:
+                transcript = transcribe_audio(audio_file)
+            except Exception as error:
+                publish_voice_activity(recording=False, processing=False)
+                print(f"Could not transcribe this clip: {error}")
+                continue
 
             if is_sleep_word(transcript):
+                publish_voice_activity(
+                    recording=False,
+                    processing=False,
+                    transcript="Dictation paused (Bye Lumen).",
+                )
                 print("\nSleep word 'bye' detected. Dictation stopped.")
                 print("Say 'Hey Lumen' when you want to start again.\n")
                 break
@@ -84,8 +120,14 @@ def run_voice_assistant():
 
             if transcript:
                 print(transcript)
+                publish_voice_activity(
+                    recording=False,
+                    processing=False,
+                    transcript=transcript,
+                )
                 send_command_to_backend(transcript)
             else:
+                publish_voice_activity(recording=False, processing=False)
                 print("[No speech detected]")
 
             print("=" * 60)
@@ -93,5 +135,13 @@ def run_voice_assistant():
 
 
 if __name__ == "__main__":
-
-    run_voice_assistant()
+    try:
+        run_voice_assistant()
+    except KeyboardInterrupt:
+        print("\nVoice assistant stopped.")
+    finally:
+        publish_voice_activity(
+            recording=False,
+            processing=False,
+            transcript="",
+        )

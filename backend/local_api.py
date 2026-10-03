@@ -3,6 +3,7 @@
 import json
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import unquote
@@ -31,6 +32,13 @@ HOST = "127.0.0.1"
 PORT = 8765
 LATEST_VOICE_COMMAND: dict | None = None
 VOICE_COMMAND_LOCK = threading.Lock()
+VOICE_ACTIVITY = {
+    "recording": False,
+    "processing": False,
+    "transcript": "",
+    "transcriptAt": 0,
+    "updatedAt": 0,
+}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -59,11 +67,44 @@ class Handler(BaseHTTPRequestHandler):
             with VOICE_COMMAND_LOCK:
                 command = LATEST_VOICE_COMMAND
                 LATEST_VOICE_COMMAND = None
-            self._json({"pending": command is not None, **({"command": command} if command else {})})
+                activity = dict(VOICE_ACTIVITY)
+            self._json({
+                "pending": command is not None,
+                "voiceActivity": activity,
+                **({"command": command} if command else {}),
+            })
         else:
             self._json({"error": "Not found"}, 404)
 
     def do_POST(self) -> None:
+        if self.path == "/voice-status":
+            global VOICE_ACTIVITY
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > 12_000:
+                    self._json({"error": "Request body is empty or too large."}, 400)
+                    return
+                payload = json.loads(self.rfile.read(length))
+                if not isinstance(payload, dict):
+                    self._json({"error": "Expected a JSON object."}, 400)
+                    return
+                with VOICE_COMMAND_LOCK:
+                    VOICE_ACTIVITY = {
+                        "recording": bool(payload.get("recording", False)),
+                        "processing": bool(payload.get("processing", False)),
+                        "transcript": VOICE_ACTIVITY["transcript"],
+                        "transcriptAt": VOICE_ACTIVITY["transcriptAt"],
+                        "updatedAt": int(time.time() * 1000),
+                    }
+                    if "transcript" in payload:
+                        transcript = str(payload.get("transcript", ""))[:10_000]
+                        VOICE_ACTIVITY["transcript"] = transcript
+                        VOICE_ACTIVITY["transcriptAt"] = VOICE_ACTIVITY["updatedAt"]
+                self._json({"ok": True})
+            except (json.JSONDecodeError, UnicodeDecodeError, AttributeError, TypeError):
+                self._json({"error": "Invalid voice status request."}, 400)
+            return
+
         if self.path == "/voice-command":
             global LATEST_VOICE_COMMAND
             try:

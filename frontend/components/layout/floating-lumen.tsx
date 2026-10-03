@@ -12,6 +12,12 @@ import { PixelBulb } from "@/components/ui/pixel-bulb";
 
 type Position = { x: number; y: number };
 type Drag = Position & { pointerId: number; startX: number; startY: number; moved: boolean };
+type VoiceActivity = {
+  recording: boolean;
+  processing: boolean;
+  transcript: string;
+  transcriptAt: number;
+};
 
 const STORAGE_KEY = "lumen-floating-icon-position";
 const ICON_SIZE = 56;
@@ -35,6 +41,13 @@ export default function FloatingLumen() {
   const [isOpen, setIsOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [question, setQuestion] = useState("");
+  const [voiceActivity, setVoiceActivity] = useState<VoiceActivity>({
+    recording: false,
+    processing: false,
+    transcript: "",
+    transcriptAt: 0,
+  });
+  const transcriptTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     try {
@@ -74,10 +87,38 @@ export default function FloatingLumen() {
   }, [isOpen]);
 
   useEffect(() => {
+    const receiveVoiceActivity = (event: Event) => {
+      const detail = (event as CustomEvent<VoiceActivity>).detail;
+      if (!detail) return;
+      setVoiceActivity(detail);
+      if (transcriptTimerRef.current !== null) {
+        window.clearTimeout(transcriptTimerRef.current);
+        transcriptTimerRef.current = null;
+      }
+      if (detail.transcript) {
+        const transcriptAt = detail.transcriptAt;
+        transcriptTimerRef.current = window.setTimeout(() => {
+          setVoiceActivity((current) =>
+            current.transcriptAt === transcriptAt
+              ? { ...current, transcript: "" }
+              : current,
+          );
+          transcriptTimerRef.current = null;
+        }, 15_000);
+      }
+    };
+    window.addEventListener("lumen-voice-activity", receiveVoiceActivity);
+    return () => {
+      window.removeEventListener("lumen-voice-activity", receiveVoiceActivity);
+      if (transcriptTimerRef.current !== null) window.clearTimeout(transcriptTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
     setIsOpen(false);
   }, [pathname]);
 
-  if (pathname === "/" || pathname === "/login") return null;
+  if (pathname === "/") return null;
 
   function savePosition(next: Position) {
     const clamped = clampPosition(next);
@@ -162,6 +203,8 @@ export default function FloatingLumen() {
   const dialogOpensBelow = position !== null && position.y < 300;
   const dialogAlignsLeft =
     position !== null && position.x + 320 <= window.innerWidth - EDGE_GAP;
+  const voiceBubbleVisible =
+    voiceActivity.recording || voiceActivity.processing || Boolean(voiceActivity.transcript);
 
   return (
     <div
@@ -171,7 +214,7 @@ export default function FloatingLumen() {
       <button
         ref={buttonRef}
         type="button"
-        aria-label="Ask Lumen"
+        aria-label={voiceActivity.recording ? "Lumen is listening" : "Ask Lumen"}
         aria-description="Drag to move this icon. Click to type a question for Ask Lumen. Use arrow keys to reposition."
         title="Drag to move · Click to Ask Lumen"
         aria-expanded={isOpen}
@@ -188,11 +231,14 @@ export default function FloatingLumen() {
           }
           setIsOpen((open) => !open);
         }}
-        className="relative flex h-14 w-14 touch-none cursor-grab select-none items-center justify-center rounded-full border border-white/15 bg-[#172033] shadow-[0_8px_28px_rgba(23,32,51,0.28)] transition duration-200 hover:scale-105 hover:shadow-[0_12px_34px_rgba(23,32,51,0.36)] active:cursor-grabbing focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#4F806C]/35 dark:border-[#7FA894]/30 dark:bg-[#1A2521]"
+        className={`relative flex h-14 w-14 touch-none cursor-grab select-none items-center justify-center rounded-full border border-white/15 bg-[#172033] shadow-[0_8px_28px_rgba(23,32,51,0.28)] transition duration-200 hover:scale-105 hover:shadow-[0_12px_34px_rgba(23,32,51,0.36)] active:cursor-grabbing focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#4F806C]/35 dark:border-[#7FA894]/30 dark:bg-[#1A2521] ${voiceActivity.recording ? "ring-4 ring-emerald-400/70 shadow-[0_0_28px_rgba(52,211,153,0.75)]" : ""}`}
       >
+        {voiceActivity.recording && (
+          <span aria-hidden="true" className="absolute inset-[-9px] animate-ping rounded-full border-2 border-emerald-400/50" />
+        )}
         <span
           aria-hidden="true"
-          className="absolute inset-[-5px] rounded-full border border-[#4F806C]/20 transition group-hover:scale-110 group-hover:border-[#4F806C]/45 dark:border-[#7FA894]/20 dark:group-hover:border-[#7FA894]/45"
+          className={`absolute inset-[-5px] rounded-full border transition group-hover:scale-110 ${voiceActivity.recording ? "border-emerald-300/80" : "border-[#4F806C]/20 group-hover:border-[#4F806C]/45 dark:border-[#7FA894]/20 dark:group-hover:border-[#7FA894]/45"}`}
         />
         <PixelBulb
           size="md"
@@ -200,6 +246,26 @@ export default function FloatingLumen() {
           className="relative transition-transform duration-200 group-hover:scale-110"
         />
       </button>
+
+      {voiceBubbleVisible && !isDragging && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`absolute ${dialogOpensBelow ? "bottom-full mb-3" : "top-full mt-3"} ${dialogAlignsLeft ? "left-0" : "right-0"} w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-lumen-border bg-card/95 p-3 shadow-[0_12px_36px_rgba(15,23,42,0.18)] backdrop-blur`}
+        >
+          <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-foreground">
+            <span className={`h-2 w-2 rounded-full ${voiceActivity.recording ? "animate-pulse bg-emerald-500" : voiceActivity.processing ? "animate-pulse bg-amber-500" : "bg-lumen-green"}`} />
+            {voiceActivity.recording ? "Lumen is listening" : voiceActivity.processing ? "Transcribing…" : "Lumen heard"}
+          </div>
+          {voiceActivity.transcript ? (
+            <p className="max-h-28 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-lumen-muted">{voiceActivity.transcript}</p>
+          ) : voiceActivity.processing ? (
+            <p className="text-xs text-lumen-muted">Your words will appear here when transcription finishes.</p>
+          ) : (
+            <p className="text-xs text-lumen-muted">Say your question or command. Say “Bye” to stop listening.</p>
+          )}
+        </div>
+      )}
 
       {(isOpen || isDragging) && (
         <section

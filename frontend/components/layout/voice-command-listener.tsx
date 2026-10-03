@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 type VoiceCommand = {
@@ -11,13 +11,28 @@ type VoiceCommand = {
   error?: string;
 };
 
-type VoiceCommandResponse = { pending?: boolean; command?: VoiceCommand };
+type VoiceActivity = {
+  recording: boolean;
+  processing: boolean;
+  transcript: string;
+  transcriptAt: number;
+  updatedAt?: number;
+};
+
+type VoiceCommandResponse = {
+  pending?: boolean;
+  command?: VoiceCommand;
+  voiceActivity?: VoiceActivity;
+};
 
 const ALLOWED_ROUTES = new Set(["/dashboard", "/patients", "/voice", "/ai"]);
 
 export default function VoiceCommandListener() {
   const router = useRouter();
   const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  const lastActivityRef = useRef("");
+  pathnameRef.current = pathname;
 
   useEffect(() => {
     let stopped = false;
@@ -34,6 +49,14 @@ export default function VoiceCommandListener() {
         });
         if (response.ok) {
           const data = (await response.json()) as VoiceCommandResponse;
+          if (data.voiceActivity) {
+            const activity = data.voiceActivity;
+            const signature = JSON.stringify(activity);
+            if (signature !== lastActivityRef.current) {
+              lastActivityRef.current = signature;
+              window.dispatchEvent(new CustomEvent("lumen-voice-activity", { detail: activity }));
+            }
+          }
           const command = data.pending ? data.command : undefined;
           if (command?.error) {
             console.warn("[Lumen voice command]", command.error);
@@ -43,7 +66,7 @@ export default function VoiceCommandListener() {
             router.push(`/patients/${encodeURIComponent(command.value)}`);
           } else if (command?.type === "query" && command.value) {
             const question = command.value;
-            if (pathname === "/ai") {
+            if (pathnameRef.current === "/ai") {
               window.dispatchEvent(new CustomEvent("lumen-prefill-question", {
                 detail: { question, autoSubmit: true },
               }));
@@ -51,6 +74,15 @@ export default function VoiceCommandListener() {
               router.push(`/ai?q=${encodeURIComponent(question)}&send=1`);
             }
           }
+        } else {
+          const inactive: VoiceActivity = {
+            recording: false,
+            processing: false,
+            transcript: "",
+            transcriptAt: 0,
+          };
+          lastActivityRef.current = JSON.stringify(inactive);
+          window.dispatchEvent(new CustomEvent("lumen-voice-activity", { detail: inactive }));
         }
       } catch {
         // The backend may be stopped; retry silently on the next interval.
@@ -65,7 +97,7 @@ export default function VoiceCommandListener() {
       window.clearTimeout(timer);
       controller?.abort();
     };
-  }, [pathname, router]);
+  }, [router]);
 
   return null;
 }
