@@ -27,11 +27,30 @@ type TranscriptSegment = {
   text: string;
 };
 
+function publishConsultationActive(
+  active: boolean,
+  recording = active,
+  processing = false,
+): Promise<void> {
+  return fetch("/api/voice-status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ consultationActive: active, recording, processing }),
+    keepalive: true,
+  })
+    .then(() => undefined)
+    .catch(() => {
+      // The voice assistant handoff is optional when only the website is running.
+    });
+}
+
 export default function VoicePage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState("");
   const [patientsLoading, setPatientsLoading] = useState(true);
+  const [autoStartRequested, setAutoStartRequested] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isStartingRecording, setIsStartingRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [speakers, setSpeakers] = useState<string[]>([]);
@@ -47,6 +66,10 @@ export default function VoicePage() {
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const discardRecordingRef = useRef(false);
+  const autoTranscribeOnStopRef = useRef(false);
+  const autoStartConsumedRef = useRef(false);
+  const consultationModeRef = useRef(false);
+  const recordingAttemptRef = useRef(0);
 
   const patient = useMemo(
     () => patients.find((item) => item.id === selectedPatient),
@@ -81,6 +104,7 @@ export default function VoicePage() {
 
     return () => {
       cancelled = true;
+      recordingAttemptRef.current += 1;
       const recorder = recorderRef.current;
       if (recorder && recorder.state !== "inactive") {
         recorder.onstop = null;
@@ -90,7 +114,55 @@ export default function VoicePage() {
     };
   }, []);
 
+  useEffect(() => () => {
+    if (consultationModeRef.current) {
+      consultationModeRef.current = false;
+      void publishConsultationActive(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("startConsultation") === "1") {
+      url.searchParams.delete("startConsultation");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      autoStartConsumedRef.current = false;
+      setAutoStartRequested(true);
+    }
+
+    const requestAutoStart = () => {
+      autoStartConsumedRef.current = false;
+      setAutoStartRequested(true);
+    };
+    window.addEventListener("lumen-start-consultation", requestAutoStart);
+    return () => window.removeEventListener("lumen-start-consultation", requestAutoStart);
+  }, []);
+
+  useEffect(() => {
+    if (!autoStartRequested || patientsLoading || autoStartConsumedRef.current) return;
+    if (!selectedPatient) {
+      autoStartConsumedRef.current = true;
+      setAutoStartRequested(false);
+      setError("Choose a patient before starting a consultation by voice.");
+      consultationModeRef.current = false;
+      void publishConsultationActive(false);
+      return;
+    }
+    if (isRecording || isStartingRecording || isProcessing) {
+      setAutoStartRequested(false);
+      setError("Finish the current consultation before starting another one by voice.");
+      return;
+    }
+    autoStartConsumedRef.current = true;
+    setAutoStartRequested(false);
+    void startRecording({ autoTranscribeAfterStop: true });
+  }, [autoStartRequested, isProcessing, isRecording, isStartingRecording, patientsLoading, selectedPatient, startRecording]);
+
   function clearConsultation() {
+    recordingAttemptRef.current += 1;
+    autoTranscribeOnStopRef.current = false;
+    consultationModeRef.current = false;
+    void publishConsultationActive(false);
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== "inactive") {
       discardRecordingRef.current = true;
@@ -102,6 +174,7 @@ export default function VoicePage() {
     streamRef.current = null;
     chunksRef.current = [];
     setIsRecording(false);
+    setIsStartingRecording(false);
     setAudioBlob(null);
     setSegments([]);
     setSpeakers([]);
@@ -111,14 +184,23 @@ export default function VoicePage() {
     setError("");
   }
 
-  async function startRecording() {
+  async function startRecording(options: { autoTranscribeAfterStop?: boolean } = {}) {
+    const attempt = ++recordingAttemptRef.current;
     setError("");
     setSaved(false);
+    setIsStartingRecording(true);
+    autoTranscribeOnStopRef.current = Boolean(options.autoTranscribeAfterStop);
+    consultationModeRef.current = true;
+    void publishConsultationActive(true);
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
         throw new Error("This browser does not support local audio recording.");
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (attempt !== recordingAttemptRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       streamRef.current = stream;
       chunksRef.current = [];
       discardRecordingRef.current = false;
@@ -135,16 +217,27 @@ export default function VoicePage() {
       recorder.onstop = () => {
         stream.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
+        void publishConsultationActive(true, false, false);
         if (!discardRecordingRef.current) {
           const recording = new Blob(chunksRef.current, {
             type: recorder.mimeType || "audio/webm",
           });
-          if (recording.size > 0) setAudioBlob(recording);
-          else setError("No audio was captured. Please try recording again.");
+          if (recording.size > 0) {
+            setAudioBlob(recording);
+            if (autoTranscribeOnStopRef.current) {
+              autoTranscribeOnStopRef.current = false;
+              void transcribeConsultation(recording);
+            }
+          } else {
+            setError("No audio was captured. Please try recording again.");
+            consultationModeRef.current = false;
+            void publishConsultationActive(false);
+          }
         }
         setIsRecording(false);
       };
       recorder.start(1000);
+      setIsStartingRecording(false);
       setAudioBlob(null);
       setSegments([]);
       setSpeakers([]);
@@ -152,6 +245,11 @@ export default function VoicePage() {
       setReport("");
       setIsRecording(true);
     } catch (reason) {
+      if (attempt !== recordingAttemptRef.current) return;
+      autoTranscribeOnStopRef.current = false;
+      consultationModeRef.current = false;
+      void publishConsultationActive(false);
+      setIsStartingRecording(false);
       streamRef.current?.getTracks().forEach((track) => track.stop());
       setError(reason instanceof Error ? reason.message : "Could not start recording.");
     }
@@ -162,19 +260,25 @@ export default function VoicePage() {
     if (recorder && recorder.state !== "inactive") recorder.stop();
   }
 
-  async function transcribeConsultation() {
-    if (!audioBlob || !selectedPatient) return;
+  async function transcribeConsultation(recording: Blob | null = audioBlob) {
+    if (!recording || !selectedPatient) {
+      consultationModeRef.current = false;
+      void publishConsultationActive(false);
+      setError("Choose a patient and make a recording before transcription.");
+      return;
+    }
     setIsProcessing(true);
+    void publishConsultationActive(true, false, true);
     setError("");
     setSaved(false);
     try {
       const response = await fetch("/api/consultations/transcribe", {
         method: "POST",
         headers: {
-          "Content-Type": audioBlob.type || "audio/webm",
+          "Content-Type": recording.type || "audio/webm",
           "X-Patient-Id": selectedPatient,
         },
-        body: audioBlob,
+        body: recording,
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Could not process the recording.");
@@ -186,6 +290,8 @@ export default function VoicePage() {
       setError(reason instanceof Error ? reason.message : "Could not process the recording.");
     } finally {
       setIsProcessing(false);
+      consultationModeRef.current = false;
+      void publishConsultationActive(false);
     }
   }
 
@@ -250,7 +356,7 @@ export default function VoicePage() {
                 Record a consultation
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-lumen-muted">
-                Record locally, separate doctor and patient speech, then review a Qwen-drafted report before saving it to the patient record.
+                Record locally, separate the speakers, correct any labels, then review Lumen&apos;s draft before saving it to the patient record.
               </p>
             </div>
 
@@ -269,7 +375,7 @@ export default function VoicePage() {
               <div className="relative max-w-md">
                 <select
                   value={selectedPatient}
-                  disabled={patientsLoading || patients.length === 0 || isRecording || isProcessing || isSummarizing || isSaving}
+                  disabled={patientsLoading || patients.length === 0 || isRecording || isStartingRecording || isProcessing || isSummarizing || isSaving}
                   onChange={(event) => {
                     setSelectedPatient(event.target.value);
                     clearConsultation();
@@ -297,28 +403,28 @@ export default function VoicePage() {
                 <div>
                   <p className="text-sm font-medium text-foreground">Consultation recording</p>
                   <p className="mt-0.5 text-xs text-lumen-muted">
-                    {isRecording ? "Recording the full conversation locally…" : audioBlob ? "Recording captured" : "Ready to record"}
+                    {isStartingRecording ? "Waiting for microphone access…" : isRecording ? "Recording the full conversation locally…" : isProcessing ? "Transcribing and separating speakers locally…" : audioBlob ? "Recording captured" : "Ready to record"}
                   </p>
                 </div>
                 <span className="flex items-center gap-2 rounded-full border border-lumen-border bg-card-hover px-3 py-1.5 text-[11px] font-medium text-lumen-muted">
-                  <span className={`h-1.5 w-1.5 rounded-full ${isRecording ? "animate-pulse bg-red-500" : "bg-lumen-green"}`} />
-                  {isRecording ? "Recording" : "Local"}
+                  <span className={`h-1.5 w-1.5 rounded-full ${isRecording ? "animate-pulse bg-red-500" : isStartingRecording || isProcessing ? "animate-pulse bg-lumen-green" : "bg-lumen-green"}`} />
+                  {isStartingRecording ? "Microphone" : isRecording ? "Recording" : isProcessing ? "Processing" : "Local"}
                 </span>
               </div>
               <div className="px-6 py-10 text-center">
                 <div className={`mx-auto flex h-24 w-24 items-center justify-center rounded-full ${isRecording ? "bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300" : "bg-lumen-green-light text-lumen-green"}`}>
-                  {isRecording ? <AudioLines size={34} className="animate-pulse" /> : <Mic size={32} />}
+                  {isRecording ? <AudioLines size={34} className="animate-pulse" /> : isStartingRecording || isProcessing ? <LoaderCircle size={32} className="animate-spin" /> : <Mic size={32} />}
                 </div>
                 <p className="mt-5 text-sm font-medium text-foreground">
-                  {isRecording ? "Listening to the consultation…" : audioBlob ? "Full consultation ready" : "Start when the doctor and patient are ready"}
+                  {isStartingRecording ? "Allow microphone access to begin…" : isRecording ? "Listening to the consultation…" : isProcessing ? "Transcription and speaker separation are running…" : audioBlob ? "Full consultation ready" : "Start when the doctor and patient are ready"}
                 </p>
                 <p className="mx-auto mt-2 max-w-lg text-xs leading-5 text-lumen-muted">
                   Keep both speakers audible. Lumen labels voices as Speaker 1 and Speaker 2; you will confirm which is the doctor and patient before drafting the report.
                 </p>
                 <div className="mt-6 flex justify-center gap-3">
                   {!isRecording ? (
-                    <button type="button" onClick={startRecording} disabled={!patient || patientsLoading || isProcessing || isSummarizing || isSaving} className="inline-flex items-center gap-2 rounded-xl bg-lumen-navy px-5 py-3 text-sm font-medium text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#0B1110]">
-                      <Mic size={16} /> Start consultation
+                    <button type="button" onClick={() => void startRecording()} disabled={!patient || patientsLoading || isStartingRecording || isProcessing || isSummarizing || isSaving} className="inline-flex items-center gap-2 rounded-xl bg-lumen-navy px-5 py-3 text-sm font-medium text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#0B1110]">
+                      {isStartingRecording ? <LoaderCircle size={16} className="animate-spin" /> : <Mic size={16} />} {isStartingRecording ? "Starting…" : "Start consultation"}
                     </button>
                   ) : (
                     <button type="button" onClick={stopRecording} className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-5 py-3 text-sm font-medium text-white shadow-sm transition hover:bg-rose-700">
@@ -338,7 +444,7 @@ export default function VoicePage() {
                     <p className="text-sm font-medium text-foreground">Ready for local analysis</p>
                     <p className="mt-1 text-xs text-lumen-muted">Whisper transcribes; the diarization model labels the two voices.</p>
                   </div>
-                  <button type="button" onClick={transcribeConsultation} disabled={isProcessing} className="inline-flex items-center justify-center gap-2 rounded-xl bg-lumen-navy px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60 dark:text-[#0B1110]">
+                  <button type="button" onClick={() => void transcribeConsultation()} disabled={isProcessing} className="inline-flex items-center justify-center gap-2 rounded-xl bg-lumen-navy px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60 dark:text-[#0B1110]">
                     {isProcessing ? <LoaderCircle size={15} className="animate-spin" /> : <Sparkles size={15} />}
                     {isProcessing ? "Transcribing and separating voices…" : "Transcribe and identify speakers"}
                   </button>
@@ -350,7 +456,7 @@ export default function VoicePage() {
               <section className="mt-6 rounded-2xl border border-lumen-border bg-card shadow-sm">
                 <div className="border-b border-lumen-border px-6 py-4">
                   <p className="text-sm font-medium text-foreground">Confirm who is speaking</p>
-                  <p className="mt-1 text-xs text-lumen-muted">Speaker labels are estimated from voice characteristics. Assign roles before asking Qwen to draft the report.</p>
+                  <p className="mt-1 text-xs text-lumen-muted">Speaker labels are estimated from voice characteristics and may need correction. Set each speaker&apos;s role and review the line labels before asking Lumen to draft the report.</p>
                 </div>
                 <div className="grid gap-4 border-b border-lumen-border p-5 sm:grid-cols-2">
                   {speakers.map((speaker, index) => (
@@ -372,9 +478,25 @@ export default function VoicePage() {
                 )}
                 <div className="max-h-80 space-y-2 overflow-y-auto p-5">
                   {segments.map((segment, index) => (
-                    <div key={`${segment.start}-${index}`} className="grid grid-cols-[56px_110px_1fr] gap-3 rounded-lg bg-card-hover px-3 py-2.5 text-xs">
+                    <div key={`${segment.start}-${index}`} className="grid grid-cols-[56px_132px_1fr] gap-3 rounded-lg bg-card-hover px-3 py-2.5 text-xs">
                       <span className="font-mono text-lumen-muted">{`${Math.floor(segment.start / 60)}:${String(Math.floor(segment.start % 60)).padStart(2, "0")}`}</span>
-                      <span className="font-semibold text-lumen-green">{speakerRoles[segment.speaker] || segment.speaker}</span>
+                      <div className="flex flex-col gap-1">
+                        <span className="font-semibold text-lumen-green">{speakerRoles[segment.speaker] || segment.speaker}</span>
+                        <select
+                          aria-label={`Correct speaker for transcript line ${index + 1}`}
+                          value={segment.speaker}
+                          onChange={(event) => {
+                            const speaker = event.target.value;
+                            setSegments((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, speaker } : item));
+                          }}
+                          className="w-full rounded border border-lumen-border bg-input px-1.5 py-1 text-[10px] text-foreground"
+                        >
+                          {segment.speaker === "UNKNOWN" && <option value="UNKNOWN">Unassigned</option>}
+                          {speakers.map((speaker, speakerIndex) => (
+                            <option key={speaker} value={speaker}>{`Speaker ${speakerIndex + 1}`}</option>
+                          ))}
+                        </select>
+                      </div>
                       <span className="leading-5 text-foreground">{segment.text}</span>
                     </div>
                   ))}
@@ -383,7 +505,7 @@ export default function VoicePage() {
                   <p className="text-xs text-lumen-muted">Check the labels and transcript before generating a report.</p>
                   <button type="button" onClick={generateReport} disabled={!canSummarize || isSummarizing} className="inline-flex items-center justify-center gap-2 rounded-xl bg-lumen-navy px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#0B1110]">
                     {isSummarizing ? <LoaderCircle size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                    {isSummarizing ? "Qwen is drafting…" : "Draft report with Qwen"}
+                    {isSummarizing ? "Lumen is drafting…" : "Draft report with Lumen"}
                   </button>
                 </div>
               </section>
@@ -396,17 +518,17 @@ export default function VoicePage() {
                     <FileText size={17} className="text-lumen-green" />
                     <div>
                       <p className="text-sm font-medium text-foreground">Consultation report draft</p>
-                      <p className="mt-0.5 text-xs text-lumen-muted">Generated locally with Qwen · Review and edit before saving</p>
+                      <p className="mt-0.5 text-xs text-lumen-muted">Generated locally with Lumen · Review and edit before saving</p>
                     </div>
                   </div>
                 </div>
                 <div className="p-5">
                   <textarea value={report} onChange={(event) => setReport(event.target.value)} rows={16} aria-label="Review and edit consultation report" className="w-full resize-y rounded-xl border border-lumen-border bg-input p-4 text-sm leading-6 text-foreground outline-none focus:border-lumen-green" />
                   <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-xs text-lumen-muted">The report will be indexed for future Ask Lumen questions.</p>
+                    <p className="text-xs text-lumen-muted">Save this reviewed report to {patient?.name ?? "the selected patient"}&apos;s record? It will then be available in Ask Lumen for that patient.</p>
                     <button type="button" onClick={saveReport} disabled={!report.trim() || isSaving || saved} className="inline-flex items-center justify-center gap-2 rounded-xl bg-lumen-navy px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#0B1110]">
                       {isSaving ? <LoaderCircle size={15} className="animate-spin" /> : <Save size={15} />}
-                      {saved ? "Saved to patient record" : isSaving ? "Saving…" : `Save report for ${patient?.name ?? "patient"}`}
+                      {saved ? "Saved to patient record" : isSaving ? "Saving…" : `Save to ${patient?.name ?? "patient"}'s record`}
                     </button>
                   </div>
                 </div>

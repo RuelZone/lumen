@@ -78,7 +78,9 @@ model = load_model()
 # TRANSCRIPTION
 # ============================================================
 
-def transcribe_audio_segments(audio_path: str) -> list[dict]:
+def transcribe_audio_segments(
+    audio_path: str, *, word_timestamps: bool = False
+) -> list[dict]:
 
     audio_file = Path(audio_path)
 
@@ -91,6 +93,7 @@ def transcribe_audio_segments(audio_path: str) -> list[dict]:
         str(audio_file),
         beam_size=5,
         vad_filter=True,
+        word_timestamps=word_timestamps,
     )
 
     transcript_segments = []
@@ -100,13 +103,24 @@ def transcribe_audio_segments(audio_path: str) -> list[dict]:
         text = segment.text.strip()
 
         if text:
-            transcript_segments.append(
-                {
-                    "start": float(segment.start),
-                    "end": float(segment.end),
-                    "text": text,
-                }
-            )
+            result = {
+                "start": float(segment.start),
+                "end": float(segment.end),
+                "text": text,
+            }
+            if word_timestamps and segment.words:
+                result["words"] = [
+                    {
+                        "start": float(word.start),
+                        "end": float(word.end),
+                        "text": word.word,
+                    }
+                    for word in segment.words
+                    if word.start is not None
+                    and word.end is not None
+                    and word.word
+                ]
+            transcript_segments.append(result)
 
     return transcript_segments
 

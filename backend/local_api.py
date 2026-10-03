@@ -19,6 +19,7 @@ from consultation_service import (
     process_consultation_audio,
     save_consultation_report,
     summarize_consultation,
+    transcribe_uploaded_audio,
 )
 from rag_backend import (
     ask_chatbot,
@@ -26,6 +27,7 @@ from rag_backend import (
     get_patient_record,
     sync_patients_from_json,
 )
+from similar_records import find_similar_records
 
 
 HOST = "127.0.0.1"
@@ -35,6 +37,7 @@ VOICE_COMMAND_LOCK = threading.Lock()
 VOICE_ACTIVITY = {
     "recording": False,
     "processing": False,
+    "consultationActive": False,
     "transcript": "",
     "transcriptAt": 0,
     "updatedAt": 0,
@@ -62,6 +65,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Patient not found"}, 404)
             else:
                 self._json(patient)
+        elif self.path == "/voice-status":
+            with VOICE_COMMAND_LOCK:
+                activity = dict(VOICE_ACTIVITY)
+            self._json({"voiceActivity": activity})
         elif self.path == "/voice-command":
             global LATEST_VOICE_COMMAND
             with VOICE_COMMAND_LOCK:
@@ -90,8 +97,12 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 with VOICE_COMMAND_LOCK:
                     VOICE_ACTIVITY = {
-                        "recording": bool(payload.get("recording", False)),
-                        "processing": bool(payload.get("processing", False)),
+                        "recording": bool(payload.get("recording", VOICE_ACTIVITY["recording"])),
+                        "processing": bool(payload.get("processing", VOICE_ACTIVITY["processing"])),
+                        "consultationActive": bool(payload.get(
+                            "consultationActive",
+                            VOICE_ACTIVITY.get("consultationActive", False),
+                        )),
                         "transcript": VOICE_ACTIVITY["transcript"],
                         "transcriptAt": VOICE_ACTIVITY["transcriptAt"],
                         "updatedAt": int(time.time() * 1000),
@@ -137,6 +148,9 @@ class Handler(BaseHTTPRequestHandler):
 
                 with VOICE_COMMAND_LOCK:
                     LATEST_VOICE_COMMAND = command_data
+                    if command.type == "start_consultation" and not command.error:
+                        VOICE_ACTIVITY["consultationActive"] = True
+                        VOICE_ACTIVITY["updatedAt"] = int(time.time() * 1000)
                 self._json({"ok": True, "command": command_data})
             except (json.JSONDecodeError, UnicodeDecodeError):
                 self._json({"error": "Invalid JSON request."}, 400)
@@ -144,6 +158,47 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Voice command could not be understood."}, 400)
             except Exception:
                 self._json({"error": "The local assistant could not process this voice command."}, 500)
+            return
+
+        if self.path == "/similar-records":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > 32_000:
+                    self._json({"error": "Request body is empty or too large."}, 400)
+                    return
+                payload = json.loads(self.rfile.read(length))
+                if not isinstance(payload, dict):
+                    self._json({"error": "Expected a JSON object."}, 400)
+                    return
+                patient_id = str(payload.get("patientId", "")).strip()
+                note_id = str(payload.get("noteId", "")).strip() or None
+                query_text = str(payload.get("queryText", "")).strip() or None
+                limit = int(payload.get("limit", 5))
+                if not patient_id:
+                    self._json({"error": "patientId is required."}, 400)
+                    return
+                records = find_similar_records(patient_id, note_id, query_text, limit)
+                self._json({"records": records, "count": len(records)})
+            except (json.JSONDecodeError, AttributeError, TypeError, ValueError) as error:
+                self._json({"error": str(error)}, 400)
+            except Exception:
+                self._json({"error": "The local assistant could not find similar records."}, 500)
+            return
+
+        if self.path == "/transcribe":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > MAX_AUDIO_BYTES:
+                    self._json({"error": "Recording is empty or exceeds the 100 MB limit."}, 400)
+                    return
+                result = transcribe_uploaded_audio(self.rfile.read(length))
+                self._json(result)
+            except ValueError as error:
+                self._json({"error": str(error)}, 400)
+            except RuntimeError as error:
+                self._json({"error": str(error)}, 503)
+            except Exception:
+                self._json({"error": "The local assistant could not transcribe this recording."}, 500)
             return
 
         if self.path == "/consultations/transcribe":

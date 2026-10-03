@@ -32,7 +32,10 @@ export default function VoiceCommandListener() {
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
   const lastActivityRef = useRef("");
-  pathnameRef.current = pathname;
+
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
 
   useEffect(() => {
     let stopped = false;
@@ -60,6 +63,18 @@ export default function VoiceCommandListener() {
           const command = data.pending ? data.command : undefined;
           if (command?.error) {
             console.warn("[Lumen voice command]", command.error);
+          } else if (command?.type === "start_consultation") {
+            if (pathnameRef.current === "/voice") {
+              window.dispatchEvent(new CustomEvent("lumen-start-consultation"));
+            } else {
+              router.push("/voice?startConsultation=1");
+            }
+          } else if (command?.type === "similar_records") {
+            if (pathnameRef.current === "/ai") {
+              window.dispatchEvent(new CustomEvent("lumen-find-similar-records"));
+            } else {
+              router.push("/ai?similar=1");
+            }
           } else if (command?.type === "navigate" && command.route && ALLOWED_ROUTES.has(command.route)) {
             router.push(command.route);
           } else if (command?.type === "open_patient" && command.value) {

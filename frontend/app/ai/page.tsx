@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import {
   ArrowUp,
@@ -10,9 +10,11 @@ import {
   Copy,
   FileText,
   FlaskConical,
+  LoaderCircle,
   Mic,
   RotateCcw,
   Sparkles,
+  Square,
   UserRound,
 } from "lucide-react";
 
@@ -20,10 +22,27 @@ import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
 import { PixelBulb } from "@/components/ui/pixel-bulb";
 
+const subscribeToNothing = () => () => {};
+const getClientHydrationSnapshot = () => true;
+const getServerHydrationSnapshot = () => false;
+
 type Patient = {
   id: string;
   name: string;
   age: number | null;
+};
+
+type SimilarRecord = {
+  noteId: string;
+  patientId: string;
+  patientName: string;
+  patientAge: number | null;
+  date: string;
+  author: string | null;
+  testName: string | null;
+  value: number | string | null;
+  text: string;
+  similarityDistance: number;
 };
 
 type ChatMessage = {
@@ -31,6 +50,8 @@ type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   patientName?: string;
+  patientId?: string;
+  question?: string;
   sources?: string[];
   timestamp: string;
   status?: "sent" | "loading" | "error";
@@ -166,7 +187,11 @@ function resolvePatientForQuestion(
 }
 
 export default function AskLumenPage() {
-  const [hasHydrated, setHasHydrated] = useState(false);
+  const hasHydrated = useSyncExternalStore(
+    subscribeToNothing,
+    getClientHydrationSnapshot,
+    getServerHydrationSnapshot,
+  );
   const [selectedPatient, setSelectedPatient] = useState("");
   const [patients, setPatients] = useState<Patient[]>([]);
   const patientIndex = useMemo(() => buildPatientIndex(patients), [patients]);
@@ -176,8 +201,13 @@ export default function AskLumenPage() {
   // Input state - strictly isolated from rendered messages
   const [inputText, setInputText] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [similarRecords, setSimilarRecords] = useState<Record<string, SimilarRecord[]>>({});
+  const [similarLoadingId, setSimilarLoadingId] = useState<string | null>(null);
+  const pendingSimilarSearchRef = useRef(false);
   const [pendingAutoSubmit, setPendingAutoSubmit] = useState<{
     question: string;
     id: number;
@@ -185,6 +215,9 @@ export default function AskLumenPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
   const autoSubmitSequenceRef = useRef(0);
   const handledAutoSubmitRef = useRef<number | null>(null);
 
@@ -192,8 +225,13 @@ export default function AskLumenPage() {
     patients.find((patient) => patient.id === selectedPatient) ??
     patients[0] ?? { id: "", name: "No patient records", age: 0 };
 
-  useEffect(() => {
-    setHasHydrated(true);
+  useEffect(() => () => {
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.onstop = null;
+      recorder.stop();
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop());
   }, []);
 
   useEffect(() => {
@@ -201,6 +239,7 @@ export default function AskLumenPage() {
     const requestedPatient = params.get("patient");
     const query = params.get("q");
     const shouldAutoSubmit = params.get("send") === "1";
+    const shouldFindSimilar = params.get("similar") === "1";
 
     let cancelled = false;
     fetch("/api/patients", { cache: "no-store" })
@@ -228,6 +267,7 @@ export default function AskLumenPage() {
             });
           }
         }
+        if (shouldFindSimilar) pendingSimilarSearchRef.current = true;
       })
       .catch((reason: unknown) => {
         if (!cancelled) {
@@ -334,6 +374,8 @@ export default function AskLumenPage() {
         content:
           data.answer ?? "I don't have that information in documented records.",
         patientName: routedPatient.name,
+        patientId: routedPatient.id,
+        question: finalQuestion,
         sources: Array.isArray(data.sources) ? data.sources : [],
         timestamp: new Date().toLocaleTimeString([], {
           hour: "2-digit",
@@ -368,6 +410,81 @@ export default function AskLumenPage() {
     }
   };
 
+  const transcribeAndSendVoiceQuestion = async (audio: Blob) => {
+    setIsTranscribing(true);
+    setBackendError("");
+    try {
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": audio.type || "audio/webm" },
+        body: audio,
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not transcribe the recording.");
+
+      const transcript = String(data.transcript ?? "").trim();
+      if (!transcript) throw new Error("No speech was detected. Please try again.");
+      setInputText(transcript);
+      setIsTranscribing(false);
+      await handleSendMessage(transcript);
+    } catch (reason) {
+      setBackendError(reason instanceof Error ? reason.message : "Could not transcribe the recording.");
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+  const startVoiceRecording = async () => {
+    setBackendError("");
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        throw new Error("This browser does not support audio recording.");
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      streamRef.current = stream;
+      audioChunksRef.current = [];
+
+      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
+        .find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        recorderRef.current = null;
+        setIsRecording(false);
+        const audio = new Blob(audioChunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        audioChunksRef.current = [];
+        if (!audio.size) {
+          setBackendError("No audio was captured. Please try recording again.");
+          return;
+        }
+        void transcribeAndSendVoiceQuestion(audio);
+      };
+      recorder.start(500);
+      setIsRecording(true);
+    } catch (reason) {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setIsRecording(false);
+      setBackendError(reason instanceof Error ? reason.message : "Could not start recording.");
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+  };
+
   useEffect(() => {
     if (
       !pendingAutoSubmit ||
@@ -399,6 +516,101 @@ export default function AskLumenPage() {
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  const findSimilarRecords = async (message: ChatMessage) => {
+    if (!message.patientId || !message.question || similarLoadingId) return;
+
+    setSimilarLoadingId(message.id);
+    setBackendError("");
+    try {
+      const response = await fetch("/api/similar-records", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          patientId: message.patientId,
+          queryText: message.question,
+          limit: 5,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? "Could not find similar records");
+      }
+      setSimilarRecords((previous) => ({
+        ...previous,
+        [message.id]: Array.isArray(data.records) ? data.records : [],
+      }));
+    } catch (reason: unknown) {
+      setBackendError(
+        reason instanceof Error
+          ? reason.message
+          : "Could not retrieve similar documented records",
+      );
+    } finally {
+      setSimilarLoadingId(null);
+    }
+  };
+
+  const startSimilarRecordsSearch = async () => {
+    if (patientsLoading || !selected.id || similarLoadingId) return;
+
+    const latestAssistant = [...messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          message.patientId === selected.id &&
+          message.question,
+      );
+    const queryText =
+      latestAssistant?.question ??
+      `documented medical records for ${selected.name}`;
+    const similarMessage: ChatMessage = {
+      id: `similar-${Date.now()}`,
+      role: "assistant",
+      content: "",
+      patientName: selected.name,
+      patientId: selected.id,
+      question: queryText,
+      timestamp: new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      status: "sent",
+    };
+
+    setMessages((previous) => [...previous, similarMessage]);
+    await findSimilarRecords(similarMessage);
+  };
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (!pendingSimilarSearchRef.current && url.searchParams.get("similar") !== "1") return;
+    if (patientsLoading || !selected.id) {
+      pendingSimilarSearchRef.current = true;
+      return;
+    }
+
+    pendingSimilarSearchRef.current = false;
+    url.searchParams.delete("similar");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    void startSimilarRecordsSearch();
+  }, [patientsLoading, selected.id, startSimilarRecordsSearch]);
+
+  useEffect(() => {
+    const handleFindSimilarRecords = () => {
+      if (patientsLoading || !selected.id) {
+        pendingSimilarSearchRef.current = true;
+        return;
+      }
+      void startSimilarRecordsSearch();
+    };
+
+    window.addEventListener("lumen-find-similar-records", handleFindSimilarRecords);
+    return () => {
+      window.removeEventListener("lumen-find-similar-records", handleFindSimilarRecords);
+    };
+  }, [patientsLoading, selected.id, startSimilarRecordsSearch]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -463,7 +675,7 @@ export default function AskLumenPage() {
                     setInputText("");
                     setBackendError("");
                   }}
-                  disabled={!hasHydrated || patientsLoading || patients.length === 0}
+                  disabled={!hasHydrated || patientsLoading || patients.length === 0 || isRecording || isTranscribing || isSearching}
                   className="w-full appearance-none rounded-xl border border-lumen-border bg-card py-3.5 pl-14 pr-10 text-sm font-medium text-foreground outline-none transition focus:border-lumen-green"
                 >
                   {patientsLoading ? (
@@ -635,6 +847,35 @@ export default function AskLumenPage() {
                                 </div>
                               </div>
                             )}
+
+                            {msg.role === "assistant" && msg.status !== "error" && (
+                              <div className="mt-5 border-t border-lumen-border/60 pt-4">
+                                {similarRecords[msg.id] === undefined ? (
+                                  <div className="flex flex-col gap-3 rounded-xl border border-lumen-border bg-card px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                      <p className="text-[10px] font-semibold text-foreground">
+                                        Similar documented records
+                                      </p>
+                                      <p className="mt-1 text-[9px] leading-relaxed text-lumen-muted">
+                                        Search other patients’ notes for records related to this question.
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => void findSimilarRecords(msg)}
+                                      disabled={similarLoadingId !== null}
+                                      className="shrink-0 rounded-lg border border-lumen-border bg-card px-3 py-2 text-[9px] font-semibold text-lumen-green transition hover:border-lumen-green/50 hover:bg-card-hover disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      {similarLoadingId === msg.id
+                                        ? "Searching…"
+                                        : "Find similar records"}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <SimilarRecordsPanel records={similarRecords[msg.id]} />
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -686,22 +927,25 @@ export default function AskLumenPage() {
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
                     placeholder={`Ask about ${selected.name}'s records (e.g. lab results, consultations)...`}
-                    disabled={!hasHydrated || isSearching || !selected.id}
+                    disabled={!hasHydrated || isSearching || isRecording || isTranscribing || !selected.id}
                     className="min-w-0 flex-1 bg-transparent px-3 py-2 text-xs text-foreground outline-none placeholder:text-lumen-muted disabled:opacity-60"
                   />
 
                   <button
                     type="button"
-                    aria-label="Voice input"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lumen-muted transition hover:bg-card-hover hover:text-foreground"
-                    title="Voice input"
+                    onClick={() => (isRecording ? stopVoiceRecording() : void startVoiceRecording())}
+                    disabled={!hasHydrated || !selected.id || isTranscribing || isSearching}
+                    aria-label={isRecording ? "Stop voice recording" : "Record a voice question"}
+                    aria-pressed={isRecording}
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition disabled:cursor-not-allowed disabled:opacity-40 ${isRecording ? "bg-rose-100 text-rose-600 hover:bg-rose-200 dark:bg-rose-950/40 dark:text-rose-300" : "text-lumen-muted hover:bg-card-hover hover:text-foreground"}`}
+                    title={isRecording ? "Stop recording and send question" : isTranscribing ? "Transcribing locally…" : "Record a voice question"}
                   >
-                    <Mic size={15} />
+                    {isRecording ? <Square size={14} fill="currentColor" /> : isTranscribing ? <LoaderCircle size={15} className="animate-spin" /> : <Mic size={15} />}
                   </button>
 
                   <button
                     type="submit"
-                    disabled={!inputText.trim() || isSearching || !selected.id}
+                    disabled={!inputText.trim() || isSearching || isRecording || isTranscribing || !selected.id}
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-lumen-navy text-white transition hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 dark:text-[#0B1110]"
                     aria-label="Send prompt"
                     title="Send prompt"
@@ -712,7 +956,11 @@ export default function AskLumenPage() {
 
                 <div className="mt-2 flex items-center justify-between px-1">
                   <p className="text-[9px] text-lumen-muted">
-                    Lumen runs locally within your hospital network. All queries remain strictly private.
+                    {isRecording
+                      ? "Recording… Click the mic again to stop."
+                      : isTranscribing
+                        ? "Transcribing locally; Lumen will send the question automatically."
+                        : "Lumen runs locally within your hospital network. All queries remain strictly private."}
                   </p>
 
                   <Link
@@ -811,6 +1059,59 @@ function SourceCard({
           {detail}
         </p>
       </div>
+    </div>
+  );
+}
+
+function SimilarRecordsPanel({ records }: { records: SimilarRecord[] }) {
+  return (
+    <div className="rounded-xl border border-lumen-border bg-card px-4 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground">
+            Similar documented records
+          </p>
+          <p className="mt-1 text-[9px] text-lumen-muted">
+            Reference notes from other patients. Verify details against the active patient’s chart.
+          </p>
+        </div>
+        <span className="shrink-0 rounded-full border border-lumen-border bg-card-hover px-2 py-1 text-[8px] font-medium text-lumen-muted">
+          {records.length} found
+        </span>
+      </div>
+
+      {records.length === 0 ? (
+        <p className="mt-4 rounded-lg border border-dashed border-lumen-border px-3 py-4 text-center text-[10px] text-lumen-muted">
+          No similar documented records were found.
+        </p>
+      ) : (
+        <div className="mt-4 space-y-2">
+          {records.map((record) => (
+            <article
+              key={record.noteId}
+              className="rounded-xl border border-lumen-border bg-card-hover px-3.5 py-3"
+            >
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                <p className="text-[11px] font-semibold text-foreground">
+                  {record.patientName}
+                  {record.patientAge != null ? ` · ${record.patientAge} years` : ""}
+                </p>
+                <span className="font-mono text-[9px] text-lumen-muted">{record.date}</span>
+              </div>
+              {(record.testName || record.value != null) && (
+                <p className="mt-1 text-[9px] font-medium text-lumen-green">
+                  {[record.testName, record.value != null ? `Value: ${record.value}` : null]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              )}
+              <p className="mt-2 whitespace-pre-wrap text-[10px] leading-relaxed text-lumen-muted">
+                {record.text}
+              </p>
+            </article>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

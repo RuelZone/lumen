@@ -12,7 +12,7 @@ from faster_whisper import WhisperModel
 # ============================================================
 
 SAMPLE_RATE = 16000
-CHUNK_SECONDS = 2
+CHUNK_SECONDS = 3
 
 WAKE_PHRASE = "hey lumen"
 
@@ -77,19 +77,9 @@ def normalize_text(text: str) -> str:
 # WAKE WORD CHECK
 # ============================================================
 
-def is_wake_word(text: str) -> bool:
+def command_after_wake_word(text: str) -> str | None:
 
     normalized = normalize_text(text)
-
-    # Exact / variant match
-    for variant in WAKE_VARIANTS:
-
-        variant = normalize_text(variant)
-
-        if variant in normalized:
-            return True
-
-    # Compare individual words/short phrases
     words = normalized.split()
 
     if len(words) >= 2:
@@ -126,16 +116,23 @@ def is_wake_word(text: str) -> bool:
                     hey_similarity >= 0.60
                     and lumen_similarity >= 0.55
                 ):
-                    return True
+                    # Keep anything spoken after the wake phrase in this same
+                    # audio chunk so commands like "Hey Lumen start consultation"
+                    # are not lost when wake-word detection returns.
+                    return " ".join(words[i + 2:])
 
-    return False
+    return None
+
+
+def is_wake_word(text: str) -> bool:
+    return command_after_wake_word(text) is not None
 
 
 # ============================================================
 # LISTEN
 # ============================================================
 
-def listen_for_wake_word():
+def listen_for_wake_word() -> str | None:
 
     while True:
 
@@ -176,7 +173,8 @@ def listen_for_wake_word():
 
             print(f"Heard: {transcript}")
 
-            if is_wake_word(transcript):
+            command = command_after_wake_word(transcript)
+            if command is not None:
 
                 print("\n" + "=" * 60)
                 print("WAKE WORD DETECTED")
@@ -184,7 +182,7 @@ def listen_for_wake_word():
                 print("Hey Lumen detected!")
                 print("=" * 60)
 
-                return True
+                return command
 
             time.sleep(0.05)
 

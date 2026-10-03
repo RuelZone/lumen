@@ -42,6 +42,19 @@ def route_command(transcript: str, patients: list[dict[str, Any]] | None = None)
     if not normalized:
         return VoiceCommand(type="error", error="I didn't hear a command.")
 
+    if re.search(
+        r"^(?:(?:hey|hi)\s+lumen\s+)?(?:please\s+)?(?:start|begin|record)\s+(?:a\s+)?(?:new\s+)?consultation\b",
+        normalized,
+    ):
+        return VoiceCommand(type="start_consultation", route="/voice")
+
+    if re.search(
+        r"\b(?:find|show|search|retrieve|get|look up)\s+(?:me\s+)?(?:the\s+)?(?:similar|related)\s+(?:documented\s+)?(?:records?|notes?|cases?)\b"
+        r"|\b(?:similar|related)\s+(?:documented\s+)?(?:records?|notes?|cases?)\b",
+        normalized,
+    ):
+        return VoiceCommand(type="similar_records", route="/ai")
+
     roster = patients if patients is not None else _local_patients()
     open_intent = re.search(r"\b(open|show|find|bring up|go to|navigate to)\b", normalized)
     asks_for_record_info = re.search(

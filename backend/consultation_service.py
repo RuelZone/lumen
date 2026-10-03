@@ -4,6 +4,7 @@ import io
 import os
 import sys
 import tempfile
+import warnings
 import wave
 from pathlib import Path
 
@@ -16,6 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WHISPER_DIR = PROJECT_ROOT / "whisper"
 DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
 MAX_AUDIO_BYTES = 100 * 1024 * 1024
+MAX_SPEAKER_ALIGNMENT_GAP = 0.35
 
 _diarization_pipeline = None
 
@@ -26,7 +28,16 @@ def _load_diarization_pipeline():
         return _diarization_pipeline
 
     try:
-        from pyannote.audio import Pipeline
+        # Pyannote warns at import when TorchCodec's FFmpeg DLLs are missing.
+        # This service decodes recordings with PyAV and passes pyannote an
+        # in-memory waveform, so its TorchCodec file decoder is not used.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"(torchcodec is not installed correctly so built-in audio decoding will fail|Could not load libtorchcodec).*",
+                category=UserWarning,
+            )
+            from pyannote.audio import Pipeline
     except ImportError as exc:
         raise RuntimeError(
             "Speaker diarization is not installed. Install the project requirements, "
@@ -80,6 +91,135 @@ def _convert_audio_to_wav(audio_bytes: bytes, wav_path: Path) -> None:
         ) from exc
 
 
+def _read_wav_as_waveform(wav_path: Path):
+    """Read the normalized WAV into memory, avoiding pyannote's TorchCodec decoder."""
+    import torch
+
+    with wave.open(str(wav_path), "rb") as source:
+        channels = source.getnchannels()
+        sample_rate = source.getframerate()
+        pcm = source.readframes(source.getnframes())
+
+    if channels != 1:
+        raise ValueError("The normalized consultation audio must be mono.")
+    if sample_rate != 16000:
+        raise ValueError("The normalized consultation audio must be 16 kHz.")
+    if not pcm:
+        raise ValueError("The recording contains no audio samples.")
+
+    # Pyannote accepts a (channels, samples) tensor directly. Feeding this
+    # decoded waveform avoids its file decoder, which needs TorchCodec's native
+    # FFmpeg DLLs and currently fails in the Windows venv.
+    waveform = torch.frombuffer(bytearray(pcm), dtype=torch.int16)
+    waveform = waveform.to(dtype=torch.float32).div_(32768.0).unsqueeze(0)
+    return waveform, sample_rate
+
+
+def _speaker_for_interval(
+    start: float, end: float, speaker_turns: list[tuple[float, float, str]]
+) -> str:
+    """Choose the diarized voice with the greatest overlap with a word."""
+    overlaps: dict[str, float] = {}
+    for turn_start, turn_end, speaker in speaker_turns:
+        overlap = max(0.0, min(end, turn_end) - max(start, turn_start))
+        if overlap:
+            overlaps[speaker] = overlaps.get(speaker, 0.0) + overlap
+    if overlaps:
+        return max(overlaps, key=overlaps.get)
+
+    # Diarization may leave tiny gaps at turn boundaries. Assign only when a
+    # nearby voice turn is close; otherwise preserve an explicit unknown label.
+    midpoint = (start + end) / 2
+    nearest = min(
+        speaker_turns,
+        key=lambda turn: min(abs(midpoint - turn[0]), abs(midpoint - turn[1])),
+        default=None,
+    )
+    if nearest:
+        distance = min(abs(midpoint - nearest[0]), abs(midpoint - nearest[1]))
+        if distance <= MAX_SPEAKER_ALIGNMENT_GAP:
+            return nearest[2]
+    return "UNKNOWN"
+
+
+def _label_transcript_segments(
+    transcript_segments: list[dict],
+    speaker_turns: list[tuple[float, float, str]],
+) -> list[dict]:
+    """Align Whisper words to pyannote turns, splitting turns inside sentences."""
+    labeled_segments = []
+    for segment in transcript_segments:
+        words = segment.get("words") or []
+        if not words:
+            start = float(segment["start"])
+            end = float(segment["end"])
+            labeled_segments.append({
+                "start": round(start, 2),
+                "end": round(end, 2),
+                "speaker": _speaker_for_interval(start, end, speaker_turns),
+                "text": str(segment["text"]).strip(),
+            })
+            continue
+
+        group = []
+        group_speaker = None
+
+        def flush_group() -> None:
+            if not group:
+                return
+            text = "".join(word["text"] for word in group).strip()
+            if text:
+                labeled_segments.append({
+                    "start": round(group[0]["start"], 2),
+                    "end": round(group[-1]["end"], 2),
+                    "speaker": group_speaker or "UNKNOWN",
+                    "text": text,
+                })
+
+        for word in words:
+            word_start = float(word["start"])
+            word_end = float(word["end"])
+            speaker = _speaker_for_interval(word_start, word_end, speaker_turns)
+            if group and speaker != group_speaker:
+                flush_group()
+                group = []
+            if not group:
+                group_speaker = speaker
+            group.append({
+                "start": word_start,
+                "end": word_end,
+                "text": str(word["text"]),
+            })
+        flush_group()
+
+    return labeled_segments
+
+
+def transcribe_uploaded_audio(audio_bytes: bytes) -> dict:
+    """Transcribe one Ask Lumen voice question locally, without diarization."""
+    if not audio_bytes:
+        raise ValueError("The recording is empty.")
+    if len(audio_bytes) > MAX_AUDIO_BYTES:
+        raise ValueError("The recording is too large. Keep it under 100 MB.")
+
+    sys.path.insert(0, str(WHISPER_DIR))
+    try:
+        from transcribe import transcribe_audio
+    except ImportError as exc:
+        raise RuntimeError(
+            "Whisper transcription is unavailable. Install faster-whisper in the backend environment."
+        ) from exc
+
+    with tempfile.TemporaryDirectory(prefix="lumen-question-") as temp_dir:
+        wav_path = Path(temp_dir) / "question.wav"
+        _convert_audio_to_wav(audio_bytes, wav_path)
+        transcript = transcribe_audio(str(wav_path)).strip()
+
+    if not transcript:
+        raise ValueError("No speech was detected. Please try recording again.")
+    return {"transcript": transcript}
+
+
 def process_consultation_audio(patient_id: str, audio_bytes: bytes) -> dict:
     """Transcribe and diarize a complete consultation recording locally."""
     if not patient_id or not get_patient_by_id(patient_id):
@@ -101,36 +241,27 @@ def process_consultation_audio(patient_id: str, audio_bytes: bytes) -> dict:
         wav_path = Path(temp_dir) / "consultation.wav"
         _convert_audio_to_wav(audio_bytes, wav_path)
 
-        transcript_segments = transcribe_audio_segments(str(wav_path))
+        transcript_segments = transcribe_audio_segments(
+            str(wav_path), word_timestamps=True
+        )
         if not transcript_segments:
             raise ValueError("No speech was detected in the recording.")
 
         pipeline = _load_diarization_pipeline()
-        result = pipeline(str(wav_path), num_speakers=2)
+        waveform, sample_rate = _read_wav_as_waveform(wav_path)
+        result = pipeline(
+            {"waveform": waveform, "sample_rate": sample_rate},
+            num_speakers=2,
+        )
         diarization = getattr(result, "speaker_diarization", result)
         speaker_turns = [
             (turn.start, turn.end, str(speaker))
             for turn, _, speaker in diarization.itertracks(yield_label=True)
         ]
 
-        labeled_segments = []
-        for segment in transcript_segments:
-            start = float(segment["start"])
-            end = float(segment["end"])
-            overlaps: dict[str, float] = {}
-            for turn_start, turn_end, speaker in speaker_turns:
-                overlap = max(0.0, min(end, turn_end) - max(start, turn_start))
-                if overlap:
-                    overlaps[speaker] = overlaps.get(speaker, 0.0) + overlap
-            speaker = max(overlaps, key=overlaps.get) if overlaps else "UNKNOWN"
-            labeled_segments.append(
-                {
-                    "start": round(start, 2),
-                    "end": round(end, 2),
-                    "speaker": speaker,
-                    "text": str(segment["text"]).strip(),
-                }
-            )
+        labeled_segments = _label_transcript_segments(
+            transcript_segments, speaker_turns
+        )
 
     speakers = list(dict.fromkeys(
         segment["speaker"] for segment in labeled_segments if segment["speaker"] != "UNKNOWN"
