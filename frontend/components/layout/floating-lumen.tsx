@@ -77,7 +77,7 @@ export default function FloatingLumen() {
     setIsOpen(false);
   }, [pathname]);
 
-  if (pathname === "/login") return null;
+  if (pathname === "/" || pathname === "/login") return null;
 
   function savePosition(next: Position) {
     const clamped = clampPosition(next);
