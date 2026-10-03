@@ -10,8 +10,9 @@ This is a hackathon/demo prototype, not a validated clinical system. Use synthet
 backend/
   local_api.py       Local HTTP API used by the frontend
   rag_backend.py     SQLite, ChromaDB, embeddings, RAG and summaries
+  procedure_library.json  Local, sourced general procedure references
   models/            Optional location for the local Qwen GGUF model
-  patients.json      Optional initial patient dataset
+patients.json        Fictional demo patient and note dataset
 frontend/            Next.js web application
 models/               Existing root-level local models, if present
 hospital.db           Existing root-level SQLite data, if present
@@ -62,7 +63,9 @@ cd ..
 
 ## Patient data
 
-Put `patients.json` in `backend/`. It can be a JSON array of patients or an object containing a `patients` array. Each patient has an `id`, `name`, `age`, and optional `notes` array. A note can contain `date`, `author`, `text`, and optional `test_name`, `value`, and `flag_for_review` fields.
+The repository includes a root-level `patients.json` fixture. **Every patient, note, and result in this file is fictional demo data; it contains no real patient records.** On backend startup, Lumen syncs patient identities to SQLite and ingests each note into SQLite and the local ChromaDB patient-note collection. The import is safe to repeat: it uses stable note IDs to avoid duplicate records. Keep any real patient data out of GitHub; the committed fixture must remain wholly fictional.
+
+`patients.json` can be a JSON array or an object containing a `patients` array. Each patient has an `id`, `name`, `age`, and optional `notes` array. A note can contain `date`, `author`, `text`, and optional `test_name`, `value`, and `flag_for_review` fields. Keep real patient data out of GitHub; the committed fixture must remain wholly fictional.
 
 Example using fictional data:
 
@@ -88,30 +91,22 @@ Example using fictional data:
 
 ## Run the application
 
-1. Seed/update the local database from `backend/patients.json` and run the backend smoke example:
+1. Start the local backend from the repository root. It syncs the available patient fixture and procedure references into the local stores:
 
    ```powershell
-   cd backend
-   python rag_backend.py
-   ```
-
-2. Start the local API in a separate terminal, with the virtual environment activated:
-
-   ```powershell
-   cd backend
-   python local_api.py
+   python backend\local_api.py
    ```
 
    The API listens on `http://127.0.0.1:8765`. The frontend uses this address by default. To use another local address, set `LUMEN_BACKEND_URL` in the frontend environment.
 
-3. Start the website in another terminal:
+2. Start the website in another terminal:
 
    ```powershell
    cd frontend
    npm run dev
    ```
 
-   Open `http://localhost:3000`. Ask Lumen uses the local `/api/patients` and `/api/chat` routes, which proxy requests to the Python API.
+   Open `http://localhost:3000`. Ask Lumen's Patient Records mode uses the local SQLite/ChromaDB patient data. Procedure Guide mode uses a separate local vector collection containing general references, without sending patient context.
 
 ## Voice consultation reports
 
@@ -136,6 +131,7 @@ Say “Hey Lumen,” then a command such as “open dashboard,” “go to voice
 - `GET /voice-command` — retrieve and consume the next pending voice command for the website
 - `POST /voice-command` — route a transcribed voice command and queue it for the website
 - `POST /chat` — ask a question about one patient's indexed notes; JSON body: `{"patientId":"P001","question":"What was the latest result?"}`
+- `POST /procedures` — query the separate local procedure-reference collection; JSON body: `{"question":"How do I help a conscious adult who is choking?"}`. This endpoint accepts only the question, not patient identifiers or records.
 - `POST /consultations/transcribe` — send raw browser audio with an `X-Patient-Id` header; returns timestamped transcript segments and speaker labels
 - `POST /consultations/summarize` — send the selected patient, transcript segments, and doctor/patient speaker assignments; returns a Qwen report draft
 - `POST /consultations/save` — save the doctor-reviewed report as a patient note in SQLite and ChromaDB

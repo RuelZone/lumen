@@ -1,0 +1,539 @@
+[
+  {
+    "id": "001",
+    "name": "Rajesh Kumar",
+    "age": 58,
+    "notes": [
+      {
+        "date": "2026-09-27",
+        "author": "Dr. Mehta",
+        "text": "Admitted with complaints of fatigue, swelling in ankles, and shortness of breath on exertion. History of hypertension for 10 years, on Amlodipine 5mg. Suspecting early-stage CKD, ordering renal panel.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-28",
+        "author": "Lab",
+        "text": "Creatinine 1.4 mg/dL, slightly elevated. eGFR 58.",
+        "test_name": "creatinine",
+        "value": 1.4,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-29",
+        "author": "Lab",
+        "text": "Creatinine 1.8 mg/dL, up from 1.4 yesterday. Flag for review.",
+        "test_name": "creatinine",
+        "value": 1.8,
+        "flag_for_review": true
+      },
+      {
+        "date": "2026-09-29",
+        "author": "Dr. Mehta",
+        "text": "Reviewed rising creatinine trend. Adjusting fluid management, holding ACE inhibitor, nephrology consult requested. Continue monitoring daily.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      }
+    ]
+  },
+  {
+    "id": "002",
+    "name": "Fatima Sheikh",
+    "age": 34,
+    "notes": [
+      {
+        "date": "2026-09-25",
+        "author": "Dr. Nair",
+        "text": "Presented with fever, dry cough, and body ache for 3 days. No travel history. Advised CBC and chest X-ray to rule out pneumonia.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-25",
+        "author": "Lab",
+        "text": "WBC count 11,200/uL, mildly elevated indicating possible infection.",
+        "test_name": "wbc_count",
+        "value": 11200,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-26",
+        "author": "Dr. Nair",
+        "text": "Chest X-ray shows mild left lower lobe infiltrate consistent with early pneumonia. Started on Azithromycin 500mg once daily for 5 days.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-28",
+        "author": "Nurse Rao",
+        "text": "Patient reports fever resolved, cough improving. Vitals stable. Tolerating oral antibiotics well.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      }
+    ]
+  },
+  {
+    "id": "003",
+    "name": "David Thompson",
+    "age": 67,
+    "notes": [
+      {
+        "date": "2026-09-20",
+        "author": "Dr. Verma",
+        "text": "Known Type 2 diabetic for 15 years, on Metformin and Glimepiride. Admitted for poor glycemic control and a non-healing ulcer on the left foot.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-20",
+        "author": "Lab",
+        "text": "HbA1c 9.8%, poor long-term glucose control.",
+        "test_name": "hba1c",
+        "value": 9.8,
+        "flag_for_review": true
+      },
+      {
+        "date": "2026-09-21",
+        "author": "Lab",
+        "text": "Random blood glucose 286 mg/dL.",
+        "test_name": "blood_glucose",
+        "value": 286,
+        "flag_for_review": true
+      },
+      {
+        "date": "2026-09-22",
+        "author": "Dr. Verma",
+        "text": "Started insulin sliding scale. Wound care team consulted for foot ulcer, debridement scheduled. Diabetic diet counseling initiated.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-26",
+        "author": "Lab",
+        "text": "Random blood glucose improved to 162 mg/dL after insulin regimen.",
+        "test_name": "blood_glucose",
+        "value": 162,
+        "flag_for_review": false
+      }
+    ]
+  },
+  {
+    "id": "004",
+    "name": "Ananya Iyer",
+    "age": 29,
+    "notes": [
+      {
+        "date": "2026-09-29",
+        "author": "Dr. Chen",
+        "text": "First prenatal visit, 12 weeks gestation. No prior pregnancies. No significant medical history. Prescribed folic acid and iron supplements.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-29",
+        "author": "Lab",
+        "text": "Hemoglobin 10.8 g/dL, mild anemia for pregnancy stage.",
+        "test_name": "hemoglobin",
+        "value": 10.8,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-29",
+        "author": "Dr. Chen",
+        "text": "Advised increased iron-rich diet, follow-up in 4 weeks with repeat CBC.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      }
+    ]
+  },
+  {
+    "id": "005",
+    "name": "Mohammed Al-Farsi",
+    "age": 72,
+    "notes": [
+      {
+        "date": "2026-09-15",
+        "author": "Dr. Mehta",
+        "text": "Admitted following a fall at home. X-ray confirms fracture of the left hip neck. History of osteoporosis, on calcium and vitamin D supplements.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-16",
+        "author": "Dr. Mehta",
+        "text": "Underwent hip hemiarthroplasty. Surgery uneventful. Post-op pain managed with scheduled analgesics.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-18",
+        "author": "Lab",
+        "text": "Hemoglobin 9.2 g/dL post-surgery, mild drop from baseline 11.5.",
+        "test_name": "hemoglobin",
+        "value": 9.2,
+        "flag_for_review": true
+      },
+      {
+        "date": "2026-09-19",
+        "author": "Dr. Mehta",
+        "text": "Hemoglobin drop attributed to surgical blood loss, within expected range. Transfusion not required. Starting physiotherapy tomorrow.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-23",
+        "author": "Nurse Rao",
+        "text": "Patient mobilizing with walker, tolerating physiotherapy sessions well. Pain controlled.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      }
+    ]
+  },
+  {
+    "id": "006",
+    "name": "Priya Nair",
+    "age": 41,
+    "notes": [
+      {
+        "date": "2026-09-30",
+        "author": "Dr. Chen",
+        "text": "Complains of recurrent migraines, 3-4 episodes per week over the last 2 months, affecting work. No aura. Family history of migraine present.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-30",
+        "author": "Dr. Chen",
+        "text": "Started on Propranolol 40mg daily for prophylaxis. Advised migraine diary and trigger avoidance. Follow-up in 3 weeks.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      }
+    ]
+  },
+  {
+    "id": "007",
+    "name": "James O'Connor",
+    "age": 55,
+    "notes": [
+      {
+        "date": "2026-09-22",
+        "author": "Dr. Verma",
+        "text": "Known hypertensive and smoker, presented with crushing chest pain radiating to left arm. ECG shows ST elevation in anterior leads.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": true
+      },
+      {
+        "date": "2026-09-22",
+        "author": "Lab",
+        "text": "Troponin I 4.8 ng/mL, markedly elevated, consistent with acute MI.",
+        "test_name": "troponin",
+        "value": 4.8,
+        "flag_for_review": true
+      },
+      {
+        "date": "2026-09-22",
+        "author": "Dr. Verma",
+        "text": "Emergency PCI performed, stent placed in LAD. Patient stable post-procedure, moved to CCU for monitoring.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-25",
+        "author": "Lab",
+        "text": "Troponin I down to 0.9 ng/mL, trending toward normal.",
+        "test_name": "troponin",
+        "value": 0.9,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-27",
+        "author": "Dr. Verma",
+        "text": "Patient stable, started on dual antiplatelet therapy and statin. Cardiac rehab counseling provided. Planning discharge in 2 days.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      }
+    ]
+  },
+  {
+    "id": "008",
+    "name": "Grace Mwangi",
+    "age": 8,
+    "notes": [
+      {
+        "date": "2026-09-29",
+        "author": "Dr. Nair",
+        "text": "Brought in by parents with high fever, rash on trunk, and irritability for 2 days. No known allergies. Query viral exanthem vs measles.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-29",
+        "author": "Lab",
+        "text": "Temperature 39.4C recorded at triage.",
+        "test_name": "temperature",
+        "value": 39.4,
+        "flag_for_review": true
+      },
+      {
+        "date": "2026-09-30",
+        "author": "Dr. Nair",
+        "text": "Rash pattern and vaccination history reviewed, consistent with viral exanthem, not measles. Supportive care advised, antipyretics as needed.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      }
+    ]
+  },
+  {
+    "id": "009",
+    "name": "Sanjay Desai",
+    "age": 63,
+    "notes": [
+      {
+        "date": "2026-09-18",
+        "author": "Dr. Mehta",
+        "text": "Long-standing COPD patient, admitted with worsening breathlessness and productive cough. On home oxygen 2L/min.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-18",
+        "author": "Lab",
+        "text": "Oxygen saturation 88% on room air at admission.",
+        "test_name": "spo2",
+        "value": 88,
+        "flag_for_review": true
+      },
+      {
+        "date": "2026-09-19",
+        "author": "Dr. Mehta",
+        "text": "Started on nebulized bronchodilators, oral steroids, and controlled oxygen therapy. Sputum culture sent.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-21",
+        "author": "Lab",
+        "text": "Oxygen saturation improved to 94% on 2L oxygen.",
+        "test_name": "spo2",
+        "value": 94,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-23",
+        "author": "Dr. Mehta",
+        "text": "Clinical improvement noted, breathlessness reduced. Planning step-down to ward and discharge in 2 days with adjusted inhaler regimen.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      }
+    ]
+  },
+  {
+    "id": "010",
+    "name": "Lucia Fernandez",
+    "age": 45,
+    "notes": [
+      {
+        "date": "2026-09-26",
+        "author": "Dr. Chen",
+        "text": "Presents with right upper quadrant pain, nausea, and intolerance to fatty food for 1 week. Ultrasound ordered to rule out gallstones.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-26",
+        "author": "Dr. Chen",
+        "text": "Ultrasound confirms multiple gallstones with mild gallbladder wall thickening, no signs of acute cholecystitis currently.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-27",
+        "author": "Dr. Chen",
+        "text": "Advised elective laparoscopic cholecystectomy. Patient counseled on low-fat diet in the interim. Surgery scheduled for next week.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      }
+    ]
+  },
+  {
+    "id": "011",
+    "name": "Arjun Patel",
+    "age": 19,
+    "notes": [
+      {
+        "date": "2026-09-30",
+        "author": "Dr. Nair",
+        "text": "College student presenting with sore throat, difficulty swallowing, and swollen tonsils for 2 days. No prior similar episodes.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-30",
+        "author": "Lab",
+        "text": "Rapid strep test positive.",
+        "test_name": "strep_test",
+        "value": 1,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-30",
+        "author": "Dr. Nair",
+        "text": "Diagnosed with streptococcal pharyngitis. Started on Penicillin V for 10 days. Advised rest and fluids.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      }
+    ]
+  },
+  {
+    "id": "012",
+    "name": "Wei Zhang",
+    "age": 51,
+    "notes": [
+      {
+        "date": "2026-09-24",
+        "author": "Dr. Verma",
+        "text": "Annual health checkup. Mild hypertension noted on repeat readings. No symptoms. Family history of cardiovascular disease.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-24",
+        "author": "Lab",
+        "text": "Blood pressure 148/94 mmHg, LDL cholesterol 162 mg/dL.",
+        "test_name": "ldl_cholesterol",
+        "value": 162,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-24",
+        "author": "Dr. Verma",
+        "text": "Advised lifestyle modification, low-sodium diet, and started low-dose antihypertensive. Repeat lipid panel in 3 months.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      }
+    ]
+  },
+  {
+    "id": "013",
+    "name": "Mary Johnson",
+    "age": 79,
+    "notes": [
+      {
+        "date": "2026-09-19",
+        "author": "Dr. Mehta",
+        "text": "Admitted with confusion and reduced oral intake over 3 days, reported by family. History of mild dementia, hypertension, and prior UTIs.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-19",
+        "author": "Lab",
+        "text": "Urinalysis shows significant leukocytes and nitrites, consistent with urinary tract infection.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-19",
+        "author": "Dr. Mehta",
+        "text": "Started on IV antibiotics for UTI with likely delirium secondary to infection. IV fluids for rehydration.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-22",
+        "author": "Nurse Rao",
+        "text": "Confusion improving, patient more oriented and taking oral fluids well. Family updated on progress.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      }
+    ]
+  },
+  {
+    "id": "014",
+    "name": "Hassan Abdi",
+    "age": 36,
+    "notes": [
+      {
+        "date": "2026-09-28",
+        "author": "Dr. Chen",
+        "text": "Presents with lower back pain radiating to left leg for 2 weeks, following heavy lifting at work. No red-flag symptoms.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-28",
+        "author": "Dr. Chen",
+        "text": "Clinical exam consistent with lumbar disc strain/mild sciatica. Advised NSAIDs, physiotherapy, and activity modification. MRI deferred unless symptoms worsen.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      }
+    ]
+  },
+  {
+    "id": "015",
+    "name": "Elena Petrova",
+    "age": 62,
+    "notes": [
+      {
+        "date": "2026-09-21",
+        "author": "Dr. Verma",
+        "text": "Known hypothyroid on Levothyroxine, presenting with fatigue and weight gain despite medication compliance.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      },
+      {
+        "date": "2026-09-21",
+        "author": "Lab",
+        "text": "TSH 9.2 mIU/L, elevated indicating under-treatment.",
+        "test_name": "tsh",
+        "value": 9.2,
+        "flag_for_review": true
+      },
+      {
+        "date": "2026-09-22",
+        "author": "Dr. Verma",
+        "text": "Increased Levothyroxine dose from 75mcg to 100mcg. Repeat TSH advised in 6 weeks.",
+        "test_name": null,
+        "value": null,
+        "flag_for_review": false
+      }
+    ]
+  }
+]

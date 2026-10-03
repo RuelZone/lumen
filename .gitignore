@@ -4,10 +4,9 @@ models/
 __pycache__/
 *.py[cod]
 
-# Local patient data and derived vector index (do not commit patient records)
+# Local patient data and generated database/vector index
 hospital.db
 chroma_db/
-patients.json
 
 # Local Whisper recordings, models, and frontend build artifacts
 whisper/audio/*.wav

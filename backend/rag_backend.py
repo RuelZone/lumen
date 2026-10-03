@@ -267,8 +267,10 @@ def get_all_patients() -> list[dict]:
 
 
 def sync_patients_from_json() -> int:
-    """Sync patient identities from the project-root JSON, retaining notes."""
+    """Load local patient data, or the bundled synthetic fixture, and index notes."""
     patient_file = ROOT_DIR / "patients.json"
+    if not patient_file.is_file():
+        patient_file = ROOT_DIR / "patients.example.json"
     if not patient_file.is_file():
         return 0
     records = json.loads(patient_file.read_text(encoding="utf-8"))
@@ -285,6 +287,17 @@ def sync_patients_from_json() -> int:
                        ON CONFLICT(id) DO UPDATE SET name=excluded.name, age=excluded.age""",
                     (str(record["id"]), record.get("name"), record.get("age")),
                 )
+    for record in records:
+        if not isinstance(record, dict) or not record.get("id"):
+            continue
+        patient_id = str(record["id"])
+        for source_note in record.get("notes", []):
+            if not isinstance(source_note, dict) or not str(source_note.get("text", "")).strip():
+                continue
+            note = dict(source_note)
+            note["patient_id"] = patient_id
+            note["id"] = _stable_note_id(patient_id, note)
+            _save_note(note)
     return len(records)
 
 
@@ -533,7 +546,11 @@ def summarize_patient(patient_id: str) -> str:
 
 if __name__ == "__main__":
     init_db()
-    patients_file = BASE_DIR / "patients.json"
+    patients_file = ROOT_DIR / "patients.json"
+    if not patients_file.is_file():
+        patients_file = ROOT_DIR / "patients.example.json"
+    if not patients_file.is_file():
+        patients_file = BASE_DIR / "patients.json"
     if not patients_file.is_file():
         raise FileNotFoundError(f"Add a JSON list of patient records at {patients_file}")
     with patients_file.open("r", encoding="utf-8") as file:
