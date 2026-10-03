@@ -121,19 +121,20 @@ The report is a draft until the doctor reviews and saves it. Speaker labels are 
 
 ## Whisper voice prototype
 
-The scripts in `whisper/` can record microphone audio, detect “Hey Lumen,” and transcribe WAV audio with faster-whisper. Run the command-line prototype from that directory:
+The scripts in `whisper/` can record microphone audio, detect “Hey Lumen,” and transcribe WAV audio with faster-whisper. To use voice navigation, keep both the Python API and website running, then open a third PowerShell terminal at the project root and run:
 
 ```powershell
-cd whisper
-python voice_assistant.py
+python .\whisper\voice_assistant.py
 ```
 
-The standalone wake-word assistant detects “Hey Lumen,” transcribes dictation clips, and stops dictation when it hears the standalone word “bye.” Consultation recording on the website is a separate full-session flow.
+Say “Hey Lumen,” then a command such as “open dashboard,” “go to voice notes,” “open Elena Petrova,” or ask a patient-record question. Lumen routes page and patient requests in the website; questions open Ask Lumen and submit automatically. Say “bye” to stop dictation and return to wake-word listening. The browser polls a same-origin Next.js API route, which forwards requests to the local Python API. Consultation recording on the website remains a separate full-session flow.
 
 ## Current API
 
 - `GET /health` — local backend health check
 - `GET /patients` — list stored patients
+- `GET /voice-command` — retrieve and consume the next pending voice command for the website
+- `POST /voice-command` — route a transcribed voice command and queue it for the website
 - `POST /chat` — ask a question about one patient's indexed notes; JSON body: `{"patientId":"P001","question":"What was the latest result?"}`
 - `POST /consultations/transcribe` — send raw browser audio with an `X-Patient-Id` header; returns timestamped transcript segments and speaker labels
 - `POST /consultations/summarize` — send the selected patient, transcript segments, and doctor/patient speaker assignments; returns a Qwen report draft
