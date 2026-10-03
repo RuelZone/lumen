@@ -23,6 +23,7 @@ from consultation_service import (
 )
 from rag_backend import (
     ask_chatbot,
+    ask_procedure_guide,
     get_all_patients,
     get_patient_record,
     sync_patients_from_json,
@@ -84,6 +85,31 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "Not found"}, 404)
 
     def do_POST(self) -> None:
+        if self.path == "/procedures":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > 16_000:
+                    self._json({"error": "Request body is empty or too large."}, 400)
+                    return
+                payload = json.loads(self.rfile.read(length))
+                if not isinstance(payload, dict) or set(payload) != {"question"}:
+                    self._json(
+                        {"error": "Procedure searches accept only a general question; patient data is not accepted."},
+                        400,
+                    )
+                    return
+                question = str(payload.get("question", "")).strip()
+                if not question or len(question) > 4_000:
+                    self._json({"error": "A procedure question under 4,000 characters is required."}, 400)
+                    return
+                answer, citations = ask_procedure_guide(question)
+                self._json({"answer": answer, "citations": citations})
+            except (json.JSONDecodeError, UnicodeDecodeError, AttributeError, TypeError, ValueError) as error:
+                self._json({"error": str(error)}, 400)
+            except Exception:
+                self._json({"error": "The local procedure guide could not answer this question."}, 500)
+            return
+
         if self.path == "/voice-status":
             global VOICE_ACTIVITY
             try:

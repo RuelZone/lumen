@@ -1,0 +1,35 @@
+[
+  {
+    "id": "adult-choking-2025",
+    "title": "Severe choking in a conscious adult",
+    "procedure": "Foreign-body airway obstruction relief",
+    "audience": "Adults; pediatric protocols differ",
+    "content": "For a conscious adult with mild airway obstruction who can cough, encourage coughing and observe for worsening. For severe choking, activate the emergency response system and give cycles of 5 back blows followed by 5 abdominal thrusts until the object is expelled or the person becomes unresponsive. If the person becomes unresponsive, begin CPR starting with chest compressions. Remove an object only if it is visible when opening the airway; do not perform blind finger sweeps. This summary is for adults; infant and child techniques differ.",
+    "organization": "American Heart Association",
+    "source_title": "2025 Adult Basic Life Support Guidelines",
+    "source_url": "https://cpr.heart.org/en/resuscitation-science/cpr-and-ecc-guidelines/adult-basic-life-support",
+    "source_checked_on": "2026-10-03"
+  },
+  {
+    "id": "adult-hands-only-cpr-2025",
+    "title": "Hands-Only CPR for a teen or adult who suddenly collapses",
+    "procedure": "Adult hands-only cardiopulmonary resuscitation",
+    "audience": "Teens and adults in sudden out-of-hospital collapse",
+    "content": "For a teen or adult who suddenly collapses outside the hospital, call the local emergency number or direct someone to call, then push hard and fast in the center of the chest. The American Heart Association describes a target compression rate of 100 to 120 per minute and a depth of about 2 inches (5 cm) for an average adult, while avoiding excessive depth beyond about 2.4 inches (6 cm). Use an AED as soon as available and follow its prompts. This hands-only summary is not a replacement for trained healthcare-provider CPR, pediatric CPR, or local protocols.",
+    "organization": "American Heart Association",
+    "source_title": "What Is CPR? Hands-Only CPR and Adult CPR Basics",
+    "source_url": "https://cpr.heart.org/en/resources/what-is-cpr",
+    "source_checked_on": "2026-10-03"
+  },
+  {
+    "id": "aed-adult-cardiac-arrest-2025",
+    "title": "Using an AED during adult cardiac arrest response",
+    "procedure": "Automated external defibrillator use",
+    "audience": "Adults; follow device prompts and local protocols",
+    "content": "In suspected adult cardiac arrest, activate the emergency response system, begin CPR, and have someone retrieve an automated external defibrillator (AED) if one is available. Turn on the AED as soon as it arrives and follow its spoken and visual prompts. Resume CPR promptly when instructed. An AED can be used by lay rescuers; training is recommended. Do not delay emergency activation or CPR while looking for an AED.",
+    "organization": "American Heart Association",
+    "source_title": "2025 Adult Basic Life Support Guidelines",
+    "source_url": "https://cpr.heart.org/en/resuscitation-science/cpr-and-ecc-guidelines/adult-basic-life-support",
+    "source_checked_on": "2026-10-03"
+  }
+]

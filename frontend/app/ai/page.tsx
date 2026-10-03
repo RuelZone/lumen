@@ -45,6 +45,14 @@ type SimilarRecord = {
   similarityDistance: number;
 };
 
+type ProcedureCitation = {
+  title: string;
+  procedure: string;
+  organization: string;
+  url: string;
+  sourceCheckedOn: string;
+};
+
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -52,7 +60,9 @@ type ChatMessage = {
   patientName?: string;
   patientId?: string;
   question?: string;
+  sourceType?: "patient" | "procedure";
   sources?: string[];
+  procedureCitations?: ProcedureCitation[];
   timestamp: string;
   status?: "sent" | "loading" | "error";
 };
@@ -193,6 +203,7 @@ export default function AskLumenPage() {
     getServerHydrationSnapshot,
   );
   const [selectedPatient, setSelectedPatient] = useState("");
+  const [queryMode, setQueryMode] = useState<"patient" | "procedures">("patient");
   const [patients, setPatients] = useState<Patient[]>([]);
   const patientIndex = useMemo(() => buildPatientIndex(patients), [patients]);
   const [patientsLoading, setPatientsLoading] = useState(true);
@@ -316,19 +327,23 @@ export default function AskLumenPage() {
 
   const handleSendMessage = async (promptToSend?: string) => {
     const finalQuestion = (promptToSend ?? inputText).trim();
+    const procedureMode = queryMode === "procedures";
 
-    if (!finalQuestion || isSearching || !selected.id) return;
+    if (!finalQuestion || isSearching || (!procedureMode && !selected.id)) return;
 
-    const routing = resolvePatientForQuestion(finalQuestion, patientIndex, selectedPatient);
-    if (!routing.patient) {
-      setBackendError(routing.error ?? "Please choose a patient before asking.");
-      return;
-    }
-    const routedPatient = routing.patient;
+    let routedPatient: Patient | undefined;
+    if (!procedureMode) {
+      const routing = resolvePatientForQuestion(finalQuestion, patientIndex, selectedPatient);
+      if (!routing.patient) {
+        setBackendError(routing.error ?? "Please choose a patient before asking.");
+        return;
+      }
+      routedPatient = routing.patient;
 
-    if (routedPatient.id !== selected.id) {
-      setSelectedPatient(routedPatient.id);
-      setMessages([]);
+      if (routedPatient.id !== selected.id) {
+        setSelectedPatient(routedPatient.id);
+        setMessages([]);
+      }
     }
 
     // Immediately clear the input dialogue to prevent stale text or backspace sync bugs
@@ -344,7 +359,8 @@ export default function AskLumenPage() {
       id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       role: "user",
       content: finalQuestion,
-      patientName: routedPatient.name,
+      patientName: routedPatient?.name,
+      sourceType: procedureMode ? "procedure" : "patient",
       timestamp: timeString,
       status: "sent",
     };
@@ -357,10 +373,11 @@ export default function AskLumenPage() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          patientId: routedPatient.id,
-          question: finalQuestion,
-        }),
+        body: JSON.stringify(
+          procedureMode
+            ? { mode: "procedures", question: finalQuestion }
+            : { patientId: routedPatient!.id, question: finalQuestion },
+        ),
       });
 
       const data = await response.json();
@@ -372,11 +389,15 @@ export default function AskLumenPage() {
         id: `asst-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         role: "assistant",
         content:
-          data.answer ?? "I don't have that information in documented records.",
-        patientName: routedPatient.name,
-        patientId: routedPatient.id,
+          data.answer ?? (procedureMode
+            ? "I don't have that information in the local procedure library."
+            : "I don't have that information in documented records."),
+        patientName: routedPatient?.name,
+        patientId: routedPatient?.id,
         question: finalQuestion,
+        sourceType: procedureMode ? "procedure" : "patient",
         sources: Array.isArray(data.sources) ? data.sources : [],
+        procedureCitations: Array.isArray(data.citations) ? data.citations : [],
         timestamp: new Date().toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
@@ -639,7 +660,7 @@ export default function AskLumenPage() {
                     </span>
                   </div>
                   <p className="mt-0.5 text-xs text-lumen-muted">
-                    Search, organize and summarize documented patient records.
+                    Ask about documented patient records or general clinical procedures.
                   </p>
                 </div>
               </div>
@@ -656,8 +677,44 @@ export default function AskLumenPage() {
               )}
             </div>
 
-            {/* Patient selector */}
             <div className="mb-4">
+              <p className="mb-2 block text-[9px] font-semibold uppercase tracking-[0.15em] text-lumen-muted">
+                Search source
+              </p>
+              <div className="inline-flex rounded-xl border border-lumen-border bg-card p-1">
+                <button
+                  type="button"
+                  aria-pressed={queryMode === "patient"}
+                  onClick={() => {
+                    setQueryMode("patient");
+                    setMessages([]);
+                    setInputText("");
+                    setBackendError("");
+                  }}
+                  disabled={isSearching || isRecording || isTranscribing}
+                  className={`rounded-lg px-3 py-2 text-[10px] font-semibold transition ${queryMode === "patient" ? "bg-lumen-green-light text-lumen-green" : "text-lumen-muted hover:bg-card-hover"}`}
+                >
+                  Patient records
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={queryMode === "procedures"}
+                  onClick={() => {
+                    setQueryMode("procedures");
+                    setMessages([]);
+                    setInputText("");
+                    setBackendError("");
+                  }}
+                  disabled={isSearching || isRecording || isTranscribing}
+                  className={`rounded-lg px-3 py-2 text-[10px] font-semibold transition ${queryMode === "procedures" ? "bg-lumen-green-light text-lumen-green" : "text-lumen-muted hover:bg-card-hover"}`}
+                >
+                  Procedure guide
+                </button>
+              </div>
+            </div>
+
+            {/* Patient selector; procedure questions never include this context. */}
+            {queryMode === "patient" ? <div className="mb-4">
               <label className="mb-2 block text-[9px] font-semibold uppercase tracking-[0.15em] text-lumen-muted">
                 Active patient context
               </label>
@@ -699,7 +756,14 @@ export default function AskLumenPage() {
                   className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-lumen-muted"
                 />
               </div>
-            </div>
+            </div> : (
+              <div className="mb-4 rounded-xl border border-lumen-border bg-card px-4 py-3">
+                <p className="text-[10px] font-semibold text-foreground">Local procedure references</p>
+                <p className="mt-1 text-[9px] leading-relaxed text-lumen-muted">
+                  Searches a separate on-device library. Patient selection, patient records, and chat history are not sent with procedure questions.
+                </p>
+              </div>
+            )}
 
             {/* Assistant workspace */}
             <section className="flex min-h-[560px] flex-col overflow-hidden rounded-2xl border border-lumen-border bg-card shadow-sm">
@@ -707,14 +771,18 @@ export default function AskLumenPage() {
               <div className="flex items-center justify-between border-b border-lumen-border px-5 py-3.5">
                 <div>
                   <p className="text-xs font-semibold text-foreground">
-                    Patient record assistant
+                    {queryMode === "procedures" ? "Procedure guide" : "Patient record assistant"}
                   </p>
                   <p className="mt-0.5 text-[10px] text-lumen-muted">
-                    {isSearching
-                      ? `Searching documented records for ${selected.name}...`
-                      : messages.length > 0
-                        ? `Consulting records for ${selected.name} (${messages.length} messages)`
-                        : `Grounded in documented records for ${selected.name}`}
+                    {queryMode === "procedures"
+                      ? isSearching
+                        ? "Searching the local procedure library..."
+                        : "Answers are grounded in locally stored clinical references."
+                      : isSearching
+                        ? `Searching documented records for ${selected.name}...`
+                        : messages.length > 0
+                          ? `Consulting records for ${selected.name} (${messages.length} messages)`
+                          : `Grounded in documented records for ${selected.name}`}
                   </p>
                 </div>
 
@@ -740,6 +808,7 @@ export default function AskLumenPage() {
                 {messages.length === 0 && !isSearching && (
                   <EmptyState
                     patient={selected}
+                    mode={queryMode}
                     onQuestion={(q) => handleSendMessage(q)}
                   />
                 )}
@@ -754,7 +823,9 @@ export default function AskLumenPage() {
                             Dr. Arun
                           </span>
                           <span className="text-[9px] text-lumen-green">
-                            For {msg.patientName ?? selected.name}
+                            {msg.sourceType === "procedure"
+                              ? "Procedure guide"
+                              : `For ${msg.patientName ?? selected.name}`}
                           </span>
                           <span className="text-[9px] text-lumen-muted/70">
                             {msg.timestamp}
@@ -782,7 +853,9 @@ export default function AskLumenPage() {
                                     Lumen
                                   </p>
                                   <span className="rounded-full border border-lumen-border bg-card px-2 py-0.5 text-[8px] uppercase tracking-wide text-lumen-muted">
-                                    {`Records: ${msg.patientName ?? selected.name}`}
+                                    {msg.sourceType === "procedure"
+                                      ? "Procedure guide"
+                                      : `Records: ${msg.patientName ?? selected.name}`}
                                   </span>
                                 </div>
                                 <span className="text-[9px] text-lumen-muted/70">
@@ -815,7 +888,9 @@ export default function AskLumenPage() {
                             {msg.sources && msg.sources.length > 0 && (
                               <div className="mt-5 border-t border-lumen-border/60 pt-4">
                                 <p className="mb-2 text-[9px] font-semibold uppercase tracking-[0.14em] text-lumen-muted">
-                                  Documented records cited ({msg.sources.length})
+                                  {msg.sourceType === "procedure"
+                                    ? `Procedure references cited (${msg.sources.length})`
+                                    : `Documented records cited (${msg.sources.length})`}
                                 </p>
                                 <div className="space-y-2">
                                   {msg.sources.map((source, index) => {
@@ -848,7 +923,32 @@ export default function AskLumenPage() {
                               </div>
                             )}
 
-                            {msg.role === "assistant" && msg.status !== "error" && (
+                            {msg.procedureCitations && msg.procedureCitations.length > 0 && (
+                              <div className="mt-5 border-t border-lumen-border/60 pt-4">
+                                <p className="mb-2 text-[9px] font-semibold uppercase tracking-[0.14em] text-lumen-muted">
+                                  Procedure references cited ({msg.procedureCitations.length})
+                                </p>
+                                <div className="space-y-2">
+                                  {msg.procedureCitations.map((citation, index) => (
+                                    <a
+                                      key={`${citation.url}-${index}`}
+                                      href={citation.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="block rounded-xl border border-lumen-border bg-card px-3.5 py-3 transition-colors hover:bg-card-hover"
+                                    >
+                                      <p className="text-[11px] font-semibold text-foreground">{citation.title}</p>
+                                      <p className="mt-1 text-[9px] text-lumen-muted">
+                                        {citation.procedure} · {citation.organization}
+                                        {citation.sourceCheckedOn ? ` · Source checked ${citation.sourceCheckedOn}` : ""}
+                                      </p>
+                                    </a>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {msg.role === "assistant" && msg.sourceType !== "procedure" && msg.status !== "error" && (
                               <div className="mt-5 border-t border-lumen-border/60 pt-4">
                                 {similarRecords[msg.id] === undefined ? (
                                   <div className="flex flex-col gap-3 rounded-xl border border-lumen-border bg-card px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
@@ -893,10 +993,12 @@ export default function AskLumenPage() {
                         </div>
                         <div className="flex-1">
                           <p className="text-xs font-semibold text-foreground">
-                            Lumen is reviewing records...
+                            {queryMode === "procedures" ? "Lumen is reviewing procedure references..." : "Lumen is reviewing records..."}
                           </p>
                           <p className="text-[10px] text-lumen-muted">
-                            Querying local vector database for {selected.name}
+                            {queryMode === "procedures"
+                              ? "Querying the local procedure library"
+                              : `Querying local patient records for ${selected.name}`}
                           </p>
                         </div>
                         <div className="flex items-center gap-1">
@@ -926,15 +1028,17 @@ export default function AskLumenPage() {
                     type="text"
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
-                    placeholder={`Ask about ${selected.name}'s records (e.g. lab results, consultations)...`}
-                    disabled={!hasHydrated || isSearching || isRecording || isTranscribing || !selected.id}
+                    placeholder={queryMode === "procedures"
+                      ? "Ask about a general procedure (e.g. adult choking first aid)..."
+                      : `Ask about ${selected.name}'s records (e.g. lab results, consultations)...`}
+                    disabled={!hasHydrated || isSearching || isRecording || isTranscribing || (queryMode === "patient" && !selected.id)}
                     className="min-w-0 flex-1 bg-transparent px-3 py-2 text-xs text-foreground outline-none placeholder:text-lumen-muted disabled:opacity-60"
                   />
 
                   <button
                     type="button"
                     onClick={() => (isRecording ? stopVoiceRecording() : void startVoiceRecording())}
-                    disabled={!hasHydrated || !selected.id || isTranscribing || isSearching}
+                    disabled={!hasHydrated || (queryMode === "patient" && !selected.id) || isTranscribing || isSearching}
                     aria-label={isRecording ? "Stop voice recording" : "Record a voice question"}
                     aria-pressed={isRecording}
                     className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition disabled:cursor-not-allowed disabled:opacity-40 ${isRecording ? "bg-rose-100 text-rose-600 hover:bg-rose-200 dark:bg-rose-950/40 dark:text-rose-300" : "text-lumen-muted hover:bg-card-hover hover:text-foreground"}`}
@@ -945,7 +1049,7 @@ export default function AskLumenPage() {
 
                   <button
                     type="submit"
-                    disabled={!inputText.trim() || isSearching || isRecording || isTranscribing || !selected.id}
+                    disabled={!inputText.trim() || isSearching || isRecording || isTranscribing || (queryMode === "patient" && !selected.id)}
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-lumen-navy text-white transition hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 dark:text-[#0B1110]"
                     aria-label="Send prompt"
                     title="Send prompt"
@@ -960,15 +1064,19 @@ export default function AskLumenPage() {
                       ? "Recording… Click the mic again to stop."
                       : isTranscribing
                         ? "Transcribing locally; Lumen will send the question automatically."
-                        : "Lumen runs locally within your hospital network. All queries remain strictly private."}
+                        : queryMode === "procedures"
+                          ? "Searched locally on this device; no patient record or chat history is sent."
+                          : "Lumen runs locally within your hospital network. All queries remain strictly private."}
                   </p>
 
-                  <Link
-                    href={`/patients/${selected.id}`}
-                    className="text-[9px] font-medium text-lumen-green transition hover:underline"
-                  >
-                    View patient chart
-                  </Link>
+                  {queryMode === "patient" && selected.id && (
+                    <Link
+                      href={`/patients/${selected.id}`}
+                      className="text-[9px] font-medium text-lumen-green transition hover:underline"
+                    >
+                      View patient chart
+                    </Link>
+                  )}
                 </div>
               </div>
             </section>
@@ -981,17 +1089,25 @@ export default function AskLumenPage() {
 
 function EmptyState({
   patient,
+  mode,
   onQuestion,
 }: {
   patient: Patient;
+  mode: "patient" | "procedures";
   onQuestion: (question: string) => void;
 }) {
-  const questions = [
-    "Show the latest lab results",
-    "Show recorded hemoglobin values",
-    "What changed since the previous visit?",
-    "Summarize the recent consultation notes",
-  ];
+  const questions = mode === "procedures"
+    ? [
+        "What are the steps for helping a conscious adult who is choking?",
+        "How do I perform Hands-Only CPR on an adult?",
+        "What should I know about using an AED?",
+      ]
+    : [
+        "Show the latest lab results",
+        "Show recorded hemoglobin values",
+        "What changed since the previous visit?",
+        "Summarize the recent consultation notes",
+      ];
 
   return (
     <div className="flex h-full min-h-[380px] flex-col items-center justify-center text-center px-4 py-8">
@@ -1001,12 +1117,13 @@ function EmptyState({
       </div>
 
       <h2 className="mt-5 text-base font-semibold text-foreground">
-        Ask your patient&apos;s memory.
+        {mode === "procedures" ? "Ask the local procedure guide." : "Ask your patient's memory."}
       </h2>
 
       <p className="mt-2 max-w-md text-xs leading-5 text-lumen-muted">
-        Ask questions about documented laboratory results, vitals, and consultation notes in{" "}
-        <span className="font-semibold text-foreground">{patient.name}&apos;s</span> records.
+        {mode === "procedures"
+          ? "Search sourced, general procedure summaries stored on this device. This starter library covers adult choking, CPR, and AED basics."
+          : <>Ask questions about documented laboratory results, vitals, and consultation notes in{" "}<span className="font-semibold text-foreground">{patient.name}&apos;s</span> records.</>}
       </p>
 
       <div className="mt-7 grid w-full max-w-[560px] grid-cols-1 gap-2.5 sm:grid-cols-2">

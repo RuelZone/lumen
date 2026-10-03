@@ -56,6 +56,8 @@ CHROMA_PATH = (
     else BASE_DIR / "chroma_db"
 )
 COLLECTION_NAME = "patient_notes"
+PROCEDURE_COLLECTION_NAME = "clinical_procedures"
+PROCEDURE_LIBRARY_PATH = BASE_DIR / "procedure_library.json"
 
 if not MODEL_PATH.is_file():
     raise FileNotFoundError(
@@ -81,6 +83,54 @@ collection = chroma_client.get_or_create_collection(
     metadata={"hnsw:space": "cosine"},
     embedding_function=None,
 )
+procedure_collection = chroma_client.get_or_create_collection(
+    name=PROCEDURE_COLLECTION_NAME,
+    metadata={"hnsw:space": "cosine", "data_scope": "general_clinical_procedures"},
+    embedding_function=None,
+)
+
+
+def _load_procedure_library() -> list[dict]:
+    try:
+        records = json.loads(PROCEDURE_LIBRARY_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("The local procedure reference library could not be loaded.") from exc
+    if not isinstance(records, list) or not records:
+        raise RuntimeError("The local procedure reference library is empty or invalid.")
+    return records
+
+
+def _index_procedure_library() -> None:
+    """Keep curated, non-patient procedure references in their own vector collection."""
+    records = _load_procedure_library()
+    procedure_collection.upsert(
+        ids=[str(record["id"]) for record in records],
+        documents=[
+            f"Procedure: {record['procedure']}\n"
+            f"Title: {record['title']}\n"
+            f"Audience: {record['audience']}\n"
+            f"Guidance: {record['content']}"
+            for record in records
+        ],
+        metadatas=[
+            {
+                "title": str(record["title"]),
+                "procedure": str(record["procedure"]),
+                "audience": str(record["audience"]),
+                "organization": str(record["organization"]),
+                "source_title": str(record["source_title"]),
+                "source_url": str(record["source_url"]),
+                "source_checked_on": str(record["source_checked_on"]),
+            }
+            for record in records
+        ],
+        embeddings=[
+            _embed(
+                f"{record['procedure']} {record['title']} {record['audience']} {record['content']}"
+            )
+            for record in records
+        ],
+    )
 
 
 def init_db() -> None:
@@ -111,6 +161,9 @@ def init_db() -> None:
 
 def _embed(text: str) -> list[float]:
     return embedder.encode(text, normalize_embeddings=True).tolist()
+
+
+_index_procedure_library()
 
 
 def _build_embedding_text(note: dict) -> str:
@@ -381,6 +434,69 @@ def ask_chatbot(patient_id: str, question: str, n_results: int = 8) -> tuple[str
     )
     answer = response["choices"][0]["message"]["content"].strip()
     return answer or "I don't have that information.", sources
+
+
+def ask_procedure_guide(question: str, n_results: int = 3) -> tuple[str, list[dict[str, str]]]:
+    """Answer a general procedure question from the separate local reference index."""
+    question = str(question).strip()
+    if not question:
+        raise ValueError("question is required")
+    if n_results < 1:
+        raise ValueError("n_results must be at least 1")
+
+    result = procedure_collection.query(
+        query_embeddings=[_embed(question)],
+        n_results=min(n_results, procedure_collection.count()),
+        include=["documents", "metadatas", "distances"],
+    )
+    documents = result.get("documents", [[]])[0] or []
+    metadatas = result.get("metadatas", [[]])[0] or []
+    distances = result.get("distances", [[]])[0] or []
+    matches = [
+        (document, metadata, distance)
+        for document, metadata, distance in zip(documents, metadatas, distances)
+        if document and metadata and distance is not None and float(distance) < 0.85
+    ]
+    if not matches:
+        return "I don't have that procedure information in the local reference library.", []
+
+    context = "\n\n---\n\n".join(
+        f"[Reference {index}]\n{document}"
+        for index, (document, _, _) in enumerate(matches, start=1)
+    )
+    response = llm.create_chat_completion(
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are Lumen's general procedure reference assistant. Answer only from the "
+                    "provided locally stored references. Do not use or infer from patient records. "
+                    "State the intended audience and important limits when the reference provides them. "
+                    "If the references do not answer the question, say you do not have that information. "
+                    "Do not invent steps or dosing. These summaries are educational references, not a "
+                    "replacement for current training, clinician judgment, emergency services, or local protocols."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"General procedure question: {question}\n\nLocal references:\n{context}",
+            },
+        ],
+        max_tokens=512,
+        temperature=0.1,
+    )
+    answer = response["choices"][0]["message"]["content"].strip()
+    citations = [
+        {
+            "title": str(metadata.get("source_title", metadata.get("title", "Procedure reference"))),
+            "procedure": str(metadata.get("procedure", "")),
+            "organization": str(metadata.get("organization", "")),
+            "url": str(metadata.get("source_url", "")),
+            "sourceCheckedOn": str(metadata.get("source_checked_on", "")),
+        }
+        for _, metadata, _ in matches
+    ]
+    return answer or "I don't have that information in the local reference library.", citations
 
 
 def summarize_patient(patient_id: str) -> str:

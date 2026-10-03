@@ -5,11 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
-  Database,
-  Lock,
-  Server,
-  ShieldCheck,
-  Sparkles,
   Users,
 } from "lucide-react";
 import { LoadingAnimationSvg } from "@/components/ui/loading-animation-svg";
@@ -126,24 +121,6 @@ export default function Home() {
               <Users size={13} className="text-[#4F806C] dark:text-[#7FA894]" />
               My Patients
             </Link>
-          </div>
-        </div>
-
-        {/* Telemetry pill row */}
-        <div className="mt-8 flex items-center justify-center gap-4 border-t border-[#E8EDE9] pt-4 text-[10px] text-[#84928B] dark:border-[#232F2B] dark:text-[#74857D]">
-          <div className="flex items-center gap-1">
-            <ShieldCheck size={12} className="text-emerald-500" />
-            <span>Air-gapped</span>
-          </div>
-          <span className="text-[#D0D9D4] dark:text-[#32413C]">•</span>
-          <div className="flex items-center gap-1">
-            <Database size={12} className="text-emerald-500" />
-            <span>Local ChromaDB</span>
-          </div>
-          <span className="text-[#D0D9D4] dark:text-[#32413C]">•</span>
-          <div className="flex items-center gap-1">
-            <Server size={12} className="text-emerald-500" />
-            <span>Port 8765</span>
           </div>
         </div>
       </div>
